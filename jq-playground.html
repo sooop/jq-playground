@@ -567,65 +567,40 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.js"></script>
     <script>
+        let jqInstance = null;
         let jqWorker = null;
         let queryHistory = [];
         let savedQueries = [];
         let lastResultData = null;  // CSV 다운로드용 전체 데이터
         const MAX_HISTORY = 20;
 
-        // Initialize Web Worker
+        // Initialize jq and Web Worker
         async function initJq() {
             try {
                 document.getElementById('output').innerHTML = '<span class="loading">Loading jq engine...</span>';
 
-                // Web Worker 생성 (Blob으로 인라인 코드 사용 - file:// 호환)
+                // 메인 스레드에서 jq 로드
+                jqInstance = await jq.promised;
+
+                // Web Worker 생성 (메시지 기반 작업용)
                 const workerCode = `
-                    let jqInstance = null;
-
-                    // jq-web 라이브러리 로드
-                    importScripts('https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.js');
-
-                    // Worker 초기화
-                    async function initWorker() {
-                        try {
-                            jqInstance = await jq.promised;
-                            self.postMessage({ type: 'ready' });
-                        } catch (error) {
-                            self.postMessage({ type: 'error', message: 'Worker 초기화 실패: ' + error.message });
-                        }
-                    }
-
                     // 메인 스레드로부터 메시지 수신
                     self.onmessage = async function(event) {
-                        const { input, query, format } = event.data;
-
-                        if (!jqInstance) {
-                            self.postMessage({ type: 'error', message: 'jq 엔진이 초기화되지 않음' });
-                            return;
-                        }
+                        const { input, query, format, jqCode } = event.data;
 
                         try {
-                            // JSON 파싱
+                            // 메인 스레드에서 전달받은 jq 함수 사용
+                            // 여기서는 간단히 JSON 처리만 수행
                             const parsedInput = JSON.parse(input);
 
-                            // jq 쿼리 실행
-                            const result = await jqInstance.json(parsedInput, query);
-
-                            // 결과 직렬화 (포맷별로)
-                            let output;
-                            if (format === 'json') {
-                                output = JSON.stringify(result, null, 2);
-                            } else {
-                                // CSV는 메인 스레드에서 처리하므로 JSON 결과만 반환
-                                output = JSON.stringify(result);
-                            }
-
+                            // 실제 jq 처리는 메인 스레드로 전달
                             self.postMessage({
-                                type: 'success',
-                                output: output,
-                                format: format,
-                                resultData: result  // CSV 변환용 원본 데이터
+                                type: 'process',
+                                input: parsedInput,
+                                query: query,
+                                format: format
                             });
                         } catch (error) {
                             self.postMessage({
@@ -634,50 +609,57 @@
                             });
                         }
                     };
-
-                    // Worker 초기화 시작
-                    initWorker();
                 `;
 
                 const blob = new Blob([workerCode], { type: 'application/javascript' });
                 const workerUrl = URL.createObjectURL(blob);
                 jqWorker = new Worker(workerUrl);
 
-                // Worker 메시지 처리 (통합 핸들러)
+                // Worker 메시지 처리
                 jqWorker.onmessage = handleWorkerMessage;
 
                 jqWorker.onerror = function(error) {
                     showError('Worker 에러: ' + error.message);
                 };
+
+                // 초기화 완료
+                loadHistory();
+                loadSavedQueries();
+                executeQuery();
             } catch (error) {
                 showError('Failed to initialize jq engine: ' + error.message);
             }
         }
 
         // Worker 메시지 처리 함수
-        function handleWorkerMessage(event) {
-            const { type, message, output, resultData, format } = event.data;
+        async function handleWorkerMessage(event) {
+            const { type, message, input, query, format } = event.data;
 
-            if (type === 'ready') {
-                loadHistory();
-                loadSavedQueries();
-                executeQuery();
-            } else if (type === 'success') {
-                // 전체 데이터 저장 (CSV 다운로드용)
-                lastResultData = resultData;
+            if (type === 'process') {
+                // Worker에서 JSON 파싱 완료, 메인 스레드에서 jq 처리
+                try {
+                    const result = await jqInstance.json(input, query);
 
-                // Add to history
-                const query = document.getElementById('query').value.trim();
-                addToHistory(query);
+                    // 전체 데이터 저장 (CSV 다운로드용)
+                    lastResultData = result;
 
-                // Format output
-                if (format === 'json') {
-                    document.getElementById('output').textContent = output;
-                } else if (format === 'csv') {
-                    document.getElementById('output').innerHTML = jsonToCSV(resultData);
+                    // Add to history
+                    addToHistory(query);
+
+                    // Format output
+                    if (format === 'json') {
+                        const output = JSON.stringify(result, null, 2);
+                        document.getElementById('output').textContent = output;
+                    } else if (format === 'csv') {
+                        document.getElementById('output').innerHTML = jsonToCSV(result);
+                    }
+
+                    hideError();
+                } catch (error) {
+                    showError(error.message);
+                    document.getElementById('output').textContent = '';
+                    lastResultData = null;
                 }
-
-                hideError();
             } else if (type === 'error') {
                 showError(message);
                 document.getElementById('output').textContent = '';
