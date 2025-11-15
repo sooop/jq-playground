@@ -568,30 +568,68 @@
     </div>
 
     <script>
-        let jqInstance = null;
+        let jqWorker = null;
         let queryHistory = [];
         let savedQueries = [];
+        let lastResultData = null;  // CSV 다운로드용 전체 데이터
         const MAX_HISTORY = 20;
 
-        // Initialize jq
+        // Initialize Web Worker
         async function initJq() {
             try {
                 document.getElementById('output').innerHTML = '<span class="loading">Loading jq engine...</span>';
-                jqInstance = await jq.promised;
-                loadHistory();
-                loadSavedQueries();
-                executeQuery();
+
+                // Web Worker 생성
+                jqWorker = new Worker('jq-playground.worker.js');
+
+                // Worker 메시지 처리 (통합 핸들러)
+                jqWorker.onmessage = handleWorkerMessage;
+
+                jqWorker.onerror = function(error) {
+                    showError('Worker 로드 실패: ' + error.message);
+                };
             } catch (error) {
                 showError('Failed to initialize jq engine: ' + error.message);
             }
         }
 
+        // Worker 메시지 처리 함수
+        function handleWorkerMessage(event) {
+            const { type, message, output, resultData, format } = event.data;
+
+            if (type === 'ready') {
+                loadHistory();
+                loadSavedQueries();
+                executeQuery();
+            } else if (type === 'success') {
+                // 전체 데이터 저장 (CSV 다운로드용)
+                lastResultData = resultData;
+
+                // Add to history
+                const query = document.getElementById('query').value.trim();
+                addToHistory(query);
+
+                // Format output
+                if (format === 'json') {
+                    document.getElementById('output').textContent = output;
+                } else if (format === 'csv') {
+                    document.getElementById('output').innerHTML = jsonToCSV(resultData);
+                }
+
+                hideError();
+            } else if (type === 'error') {
+                showError(message);
+                document.getElementById('output').textContent = '';
+                lastResultData = null;
+            }
+        }
+
         // Execute jq query
         let debounceTimer;
-        async function executeQuery() {
+        function executeQuery() {
             clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(async () => {
-                if (!jqInstance) {
+            debounceTimer = setTimeout(() => {
+                if (!jqWorker) {
                     showError('jq engine not initialized');
                     return;
                 }
@@ -612,24 +650,15 @@
                     return;
                 }
 
-                try {
-                    const result = await jqInstance.json(JSON.parse(input), query);
-                    
-                    // Add to history
-                    addToHistory(query);
-                    
-                    // Format output
-                    if (format === 'json') {
-                        document.getElementById('output').textContent = JSON.stringify(result, null, 2);
-                    } else if (format === 'csv') {
-                        document.getElementById('output').innerHTML = jsonToCSV(result);
-                    }
-                    
-                    hideError();
-                } catch (error) {
-                    showError(error.message);
-                    document.getElementById('output').textContent = '';
-                }
+                // 처리 중 표시
+                document.getElementById('output').innerHTML = '<span class="loading">Processing...</span>';
+
+                // Worker에 메시지 전송
+                jqWorker.postMessage({
+                    input: input,
+                    query: query,
+                    format: format
+                });
             }, 500);
         }
 
@@ -643,17 +672,25 @@
                 return '<div>No data</div>';
             }
 
-            // Flatten objects
-            function flatten(obj, prefix = '') {
+            // Flatten objects with depth limit
+            function flatten(obj, prefix = '', depth = 0) {
+                const MAX_DEPTH = 10;  // 최대 10단계까지만 펼침
                 const flattened = {};
+
                 for (const key in obj) {
                     const value = obj[key];
                     const newKey = prefix ? `${prefix}_${key}` : key;
-                    
+
                     if (value === null || value === undefined) {
                         flattened[newKey] = '';
                     } else if (typeof value === 'object' && !Array.isArray(value)) {
-                        Object.assign(flattened, flatten(value, newKey));
+                        if (depth < MAX_DEPTH) {
+                            // 깊이 제한 미도달 → 계속 펼침
+                            Object.assign(flattened, flatten(value, newKey, depth + 1));
+                        } else {
+                            // 깊이 제한 도달 → JSON으로 직렬화
+                            flattened[newKey] = JSON.stringify(value);
+                        }
                     } else if (Array.isArray(value)) {
                         flattened[newKey] = JSON.stringify(value);
                     } else {
@@ -664,6 +701,7 @@
             }
 
             // Expand array items into separate rows
+            const MAX_TABLE_ROWS = 1000;  // 테이블 표시 최대 행 수
             const rows = [];
             for (const item of data) {
                 const flattened = flatten(item);
@@ -674,17 +712,28 @@
                 return '<div>No data</div>';
             }
 
+            // 행 수 제한 경고
+            let warningMsg = '';
+            let displayRows = rows;
+            if (rows.length > MAX_TABLE_ROWS) {
+                warningMsg = `<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">
+                    ⚠️ 데이터가 너무 많습니다. 테이블에 첫 ${MAX_TABLE_ROWS}행만 표시됩니다. (총 ${rows.length}행)
+                    <br/>전체 데이터는 <strong>Download</strong> 버튼으로 CSV 파일로 다운로드하세요.
+                </div>`;
+                displayRows = rows.slice(0, MAX_TABLE_ROWS);
+            }
+
             // Get all unique keys
-            const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
+            const keys = [...new Set(displayRows.flatMap(row => Object.keys(row)))].sort();
 
             // Build HTML table
-            let html = '<table><thead><tr>';
+            let html = warningMsg + '<table><thead><tr>';
             keys.forEach(key => {
                 html += `<th>${escapeHtml(key)}</th>`;
             });
             html += '</tr></thead><tbody>';
 
-            rows.forEach(row => {
+            displayRows.forEach(row => {
                 html += '<tr>';
                 keys.forEach(key => {
                     const value = row[key] !== undefined ? row[key] : '';
@@ -1005,10 +1054,22 @@
 
         function downloadOutput() {
             const format = document.getElementById('formatSelect').value;
-            const output = document.getElementById('output');
-            const text = format === 'json' ? output.textContent : convertTableToCSV();
-            
-            const blob = new Blob([text], { type: 'text/plain' });
+            let text;
+
+            if (format === 'json') {
+                const output = document.getElementById('output');
+                text = output.textContent;
+            } else if (format === 'csv') {
+                // CSV는 전체 데이터를 사용 (화면 제한 무시)
+                if (lastResultData) {
+                    text = convertTableToCSVData(lastResultData);
+                } else {
+                    showError('데이터가 없습니다.');
+                    return;
+                }
+            }
+
+            const blob = new Blob([text], { type: 'text/plain; charset=utf-8' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
@@ -1017,6 +1078,7 @@
             URL.revokeObjectURL(url);
         }
 
+        // 화면 테이블에서 CSV 추출 (제한된 행)
         function convertTableToCSV() {
             const table = document.querySelector('#output table');
             if (!table) return document.getElementById('output').textContent;
@@ -1037,6 +1099,70 @@
             });
 
             return rows.join('\n');
+        }
+
+        // 전체 데이터를 CSV로 변환 (다운로드용)
+        function convertTableToCSVData(data) {
+            if (!Array.isArray(data)) {
+                data = [data];
+            }
+
+            if (data.length === 0) {
+                return '';
+            }
+
+            // 동일한 flatten 로직 적용
+            function flatten(obj, prefix = '', depth = 0) {
+                const MAX_DEPTH = 10;
+                const flattened = {};
+
+                for (const key in obj) {
+                    const value = obj[key];
+                    const newKey = prefix ? `${prefix}_${key}` : key;
+
+                    if (value === null || value === undefined) {
+                        flattened[newKey] = '';
+                    } else if (typeof value === 'object' && !Array.isArray(value)) {
+                        if (depth < MAX_DEPTH) {
+                            Object.assign(flattened, flatten(value, newKey, depth + 1));
+                        } else {
+                            flattened[newKey] = JSON.stringify(value);
+                        }
+                    } else if (Array.isArray(value)) {
+                        flattened[newKey] = JSON.stringify(value);
+                    } else {
+                        flattened[newKey] = value;
+                    }
+                }
+                return flattened;
+            }
+
+            // 전체 데이터 flatten
+            const rows = [];
+            for (const item of data) {
+                const flattened = flatten(item);
+                rows.push(flattened);
+            }
+
+            // 모든 키 수집
+            const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
+
+            // CSV 헤더
+            let csv = keys.map(k => `"${k.replace(/"/g, '""')}"`).join(',') + '\n';
+
+            // CSV 행들
+            rows.forEach(row => {
+                const cells = keys.map(key => {
+                    let value = row[key] !== undefined ? String(row[key]) : '';
+                    if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+                        value = '"' + value.replace(/"/g, '""') + '"';
+                    }
+                    return value;
+                });
+                csv += cells.join(',') + '\n';
+            });
+
+            return csv;
         }
 
         function toggleCheatsheet() {
