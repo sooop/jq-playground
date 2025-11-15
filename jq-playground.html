@@ -579,14 +579,75 @@
             try {
                 document.getElementById('output').innerHTML = '<span class="loading">Loading jq engine...</span>';
 
-                // Web Worker 생성
-                jqWorker = new Worker('jq-playground.worker.js');
+                // Web Worker 생성 (Blob으로 인라인 코드 사용 - file:// 호환)
+                const workerCode = `
+                    let jqInstance = null;
+
+                    // jq-web 라이브러리 로드
+                    importScripts('https://cdn.jsdelivr.net/npm/jq-web@0.5.1/jq.wasm.js');
+
+                    // Worker 초기화
+                    async function initWorker() {
+                        try {
+                            jqInstance = await jq.promised;
+                            self.postMessage({ type: 'ready' });
+                        } catch (error) {
+                            self.postMessage({ type: 'error', message: 'Worker 초기화 실패: ' + error.message });
+                        }
+                    }
+
+                    // 메인 스레드로부터 메시지 수신
+                    self.onmessage = async function(event) {
+                        const { input, query, format } = event.data;
+
+                        if (!jqInstance) {
+                            self.postMessage({ type: 'error', message: 'jq 엔진이 초기화되지 않음' });
+                            return;
+                        }
+
+                        try {
+                            // JSON 파싱
+                            const parsedInput = JSON.parse(input);
+
+                            // jq 쿼리 실행
+                            const result = await jqInstance.json(parsedInput, query);
+
+                            // 결과 직렬화 (포맷별로)
+                            let output;
+                            if (format === 'json') {
+                                output = JSON.stringify(result, null, 2);
+                            } else {
+                                // CSV는 메인 스레드에서 처리하므로 JSON 결과만 반환
+                                output = JSON.stringify(result);
+                            }
+
+                            self.postMessage({
+                                type: 'success',
+                                output: output,
+                                format: format,
+                                resultData: result  // CSV 변환용 원본 데이터
+                            });
+                        } catch (error) {
+                            self.postMessage({
+                                type: 'error',
+                                message: error.message
+                            });
+                        }
+                    };
+
+                    // Worker 초기화 시작
+                    initWorker();
+                `;
+
+                const blob = new Blob([workerCode], { type: 'application/javascript' });
+                const workerUrl = URL.createObjectURL(blob);
+                jqWorker = new Worker(workerUrl);
 
                 // Worker 메시지 처리 (통합 핸들러)
                 jqWorker.onmessage = handleWorkerMessage;
 
                 jqWorker.onerror = function(error) {
-                    showError('Worker 로드 실패: ' + error.message);
+                    showError('Worker 에러: ' + error.message);
                 };
             } catch (error) {
                 showError('Failed to initialize jq engine: ' + error.message);
