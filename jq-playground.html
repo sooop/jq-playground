@@ -709,20 +709,48 @@
         }
 
         // Error handling
-        function showError(message) {
+        let errorTimeout;
+        function showError(message, autoHideDuration = null) {
             const banner = document.getElementById('errorBanner');
             banner.textContent = message;
             banner.classList.add('show');
+
+            // 기존 타이머 클리어
+            if (errorTimeout) clearTimeout(errorTimeout);
+
+            // 지정된 시간 후 자동 종료 (기본: 5초)
+            if (autoHideDuration !== false) {
+                const duration = autoHideDuration || 5000;  // 기본 5초
+                errorTimeout = setTimeout(() => {
+                    hideError();
+                }, duration);
+            }
         }
 
         function hideError() {
+            if (errorTimeout) clearTimeout(errorTimeout);
             document.getElementById('errorBanner').classList.remove('show');
         }
 
         // File handling
+        const MAX_FILE_SIZE = 50 * 1024 * 1024;  // 50MB
+
+        function validateFileSize(file) {
+            if (file.size > MAX_FILE_SIZE) {
+                showError(`파일이 너무 큽니다. 최대 ${(MAX_FILE_SIZE / 1024 / 1024).toFixed(1)}MB까지만 허용됩니다. (현재: ${(file.size / 1024 / 1024).toFixed(1)}MB)`);
+                return false;
+            }
+            return true;
+        }
+
         function loadFile(event) {
             const file = event.target.files[0];
             if (!file) return;
+
+            if (!validateFileSize(file)) {
+                event.target.value = '';  // 파일 입력 초기화
+                return;
+            }
 
             const reader = new FileReader();
             reader.onload = (e) => {
@@ -753,6 +781,10 @@
 
             const file = e.dataTransfer.files[0];
             if (!file) return;
+
+            if (!validateFileSize(file)) {
+                return;
+            }
 
             const reader = new FileReader();
             reader.onload = (event) => {
