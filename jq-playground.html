@@ -1082,9 +1082,16 @@
         }
 
         function copyOutput() {
-            const output = document.getElementById('output');
-            const text = output.textContent;
-            
+            const format = document.getElementById('formatSelect').value;
+            let text;
+
+            if (format === 'csv' && lastResultData) {
+                text = convertTableToCSVData(lastResultData);
+            } else {
+                const output = document.getElementById('output');
+                text = output.textContent;
+            }
+
             navigator.clipboard.writeText(text).then(() => {
                 const btn = event.target;
                 const originalText = btn.textContent;
