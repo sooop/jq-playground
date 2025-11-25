@@ -133,37 +133,95 @@ select {
     max-height: 0;
     overflow: hidden;
     transition: max-height 0.3s ease;
+    display: flex;
+    flex-direction: column;
 }
 
 .cheatsheet.open {
-    max-height: 200px;
-    overflow-y: auto;
+    max-height: 400px;
+    overflow: hidden;
+}
+
+.cheatsheet-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 12px 0;
+    background: #fafafa;
+    border-bottom: 1px solid #e5e5e5;
+    overflow-x: auto;
+    flex-shrink: 0;
+}
+
+.cheatsheet-tab {
+    padding: 6px 12px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    color: #666;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.cheatsheet-tab:hover {
+    color: #333;
+    background: rgba(0, 0, 0, 0.03);
+}
+
+.cheatsheet-tab.active {
+    color: #2563eb;
+    border-bottom-color: #2563eb;
 }
 
 .cheatsheet-content {
-    padding: 12px 16px;
+    padding: 12px;
     font-size: 12px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+}
+
+.cheatsheet-category {
+    display: none;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 8px;
+}
+
+.cheatsheet-category.active {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
 }
 
 .cheatsheet-item {
     cursor: pointer;
-    padding: 6px 8px;
+    padding: 8px 10px;
     background: #fff;
     border: 1px solid #e5e5e5;
+    border-radius: 4px;
     transition: all 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .cheatsheet-item:hover {
-    border-color: #ccc;
-    background: #f9f9f9;
+    border-color: #2563eb;
+    background: #f0f7ff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 .cheatsheet-item code {
-    color: #666;
+    color: #2563eb;
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.cheatsheet-item .cheatsheet-desc {
+    color: #666;
+    font-size: 11px;
+    line-height: 1.4;
 }
 
 /* Error Banner */

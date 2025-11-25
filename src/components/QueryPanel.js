@@ -1,30 +1,174 @@
 import { Storage } from '../utils/storage.js';
 
 const MAX_HISTORY = 20;
-const CHEATSHEET_ITEMS = [
-  { query: '.', desc: 'Identity' },
-  { query: '.[]', desc: 'Array iterator' },
-  { query: '.key', desc: 'Object field' },
-  { query: '.[0]', desc: 'Array index' },
-  { query: 'select(.age > 25)', desc: 'Filter' },
-  { query: 'map(.name)', desc: 'Transform' },
-  { query: 'group_by(.city)', desc: 'Group' },
-  { query: 'sort_by(.age)', desc: 'Sort' },
-  { query: 'to_entries', desc: 'Convert' },
-  { query: 'keys', desc: 'Object keys' },
-  { query: 'length', desc: 'Count' },
-  { query: 'if .age > 25 then "adult" else "young" end', desc: 'Condition' }
-];
+
+const CHEATSHEET_CATEGORIES = {
+  basic: {
+    title: 'Basic',
+    items: [
+      { query: '.', desc: 'Identity - returns input unchanged' },
+      { query: '.field', desc: 'Field access' },
+      { query: '.[]', desc: 'Array/object iterator' },
+      { query: '.[0]', desc: 'Array index access' },
+      { query: '.field?', desc: 'Optional field (no error if missing)' },
+      { query: '..', desc: 'Recursive descent (all values)' },
+      { query: '.field.nested', desc: 'Nested field access' },
+      { query: '.["field name"]', desc: 'Field with special chars' }
+    ]
+  },
+  filters: {
+    title: 'Filters & Selection',
+    items: [
+      { query: 'select(.age > 25)', desc: 'Filter by condition' },
+      { query: 'select(.city == "Seoul")', desc: 'Filter by equality' },
+      { query: 'select(.name | test("^A"))', desc: 'Filter by regex' },
+      { query: 'select(has("field"))', desc: 'Filter if key exists' },
+      { query: 'select(.tags | contains(["jq"]))', desc: 'Filter by array content' },
+      { query: 'map(select(.active))', desc: 'Filter within map' },
+      { query: '.[] | select(.price < 100)', desc: 'Iterate and filter' },
+      { query: 'limit(5; .[])', desc: 'Limit results' }
+    ]
+  },
+  arrays: {
+    title: 'Arrays',
+    items: [
+      { query: 'map(.name)', desc: 'Transform each element' },
+      { query: 'sort_by(.age)', desc: 'Sort by field' },
+      { query: 'reverse', desc: 'Reverse array' },
+      { query: 'unique', desc: 'Remove duplicates' },
+      { query: 'unique_by(.id)', desc: 'Unique by field' },
+      { query: 'group_by(.category)', desc: 'Group by field' },
+      { query: 'flatten', desc: 'Flatten nested arrays' },
+      { query: 'add', desc: 'Sum array elements' },
+      { query: 'min / max', desc: 'Min/max value' },
+      { query: 'min_by(.age) / max_by(.age)', desc: 'Min/max by field' },
+      { query: 'first / last', desc: 'First/last element' },
+      { query: '[.[] | .value * 2]', desc: 'Build new array' }
+    ]
+  },
+  objects: {
+    title: 'Objects',
+    items: [
+      { query: 'keys', desc: 'Object keys (sorted)' },
+      { query: 'values', desc: 'Object values' },
+      { query: 'to_entries', desc: 'Convert to [{key,value}]' },
+      { query: 'from_entries', desc: 'Convert from [{key,value}]' },
+      { query: 'with_entries(.value |= . * 2)', desc: 'Transform entries' },
+      { query: 'has("key")', desc: 'Check if key exists' },
+      { query: 'del(.field)', desc: 'Delete field' },
+      { query: '{name, age}', desc: 'Pick specific fields' },
+      { query: '{name: .fullName, age}', desc: 'Rename and pick fields' },
+      { query: '. + {new: "field"}', desc: 'Add/update fields' }
+    ]
+  },
+  strings: {
+    title: 'Strings',
+    items: [
+      { query: 'split(",")', desc: 'Split string' },
+      { query: 'join(", ")', desc: 'Join array to string' },
+      { query: 'test("pattern")', desc: 'Test regex match' },
+      { query: 'match("pattern")', desc: 'Get regex matches' },
+      { query: 'sub("old"; "new")', desc: 'Replace first match' },
+      { query: 'gsub("old"; "new")', desc: 'Replace all matches' },
+      { query: 'ascii_downcase', desc: 'Convert to lowercase' },
+      { query: 'ascii_upcase', desc: 'Convert to uppercase' },
+      { query: 'startswith("prefix")', desc: 'Check prefix' },
+      { query: 'ltrimstr("prefix")', desc: 'Remove prefix' },
+      { query: '@base64', desc: 'Base64 encode' },
+      { query: '@uri', desc: 'URL encode' }
+    ]
+  },
+  aggregation: {
+    title: 'Aggregation',
+    items: [
+      { query: 'length', desc: 'Length of array/object/string' },
+      { query: 'add', desc: 'Sum array of numbers' },
+      { query: '[.[] | .price] | add', desc: 'Sum specific field' },
+      { query: 'group_by(.type) | map({type: .[0].type, count: length})', desc: 'Count by group' },
+      { query: '[.[] | .amount] | add / length', desc: 'Calculate average' },
+      { query: 'map(.quantity) | add', desc: 'Total quantity' },
+      { query: 'any', desc: 'True if any value is true' },
+      { query: 'all', desc: 'True if all values are true' }
+    ]
+  },
+  conditionals: {
+    title: 'Conditionals',
+    items: [
+      { query: 'if .age >= 18 then "adult" else "minor" end', desc: 'If-then-else' },
+      { query: 'if .score > 90 then "A" elif .score > 80 then "B" else "C" end', desc: 'Multiple conditions' },
+      { query: '.name // "unknown"', desc: 'Alternative operator (default)' },
+      { query: 'select(.value != null)', desc: 'Filter null values' },
+      { query: '.field // empty', desc: 'Skip if null/false' },
+      { query: 'if . then "yes" else "no" end', desc: 'Boolean check' }
+    ]
+  },
+  conversion: {
+    title: 'Type & Format',
+    items: [
+      { query: 'type', desc: 'Get value type' },
+      { query: 'tonumber', desc: 'Convert to number' },
+      { query: 'tostring', desc: 'Convert to string' },
+      { query: '@json', desc: 'Format as JSON string' },
+      { query: '@csv', desc: 'Format as CSV' },
+      { query: '@tsv', desc: 'Format as TSV' },
+      { query: '@html', desc: 'HTML escape' },
+      { query: '@text', desc: 'Plain text output' },
+      { query: 'map(tonumber)', desc: 'Convert array to numbers' }
+    ]
+  },
+  advanced: {
+    title: 'Advanced',
+    items: [
+      { query: 'reduce .[] as $item (0; . + $item)', desc: 'Reduce with accumulator' },
+      { query: 'recurse(.children[]?)', desc: 'Recursive traversal' },
+      { query: 'walk(if type == "string" then ascii_upcase else . end)', desc: 'Walk and transform' },
+      { query: '[paths(scalars)]', desc: 'All paths to leaf values' },
+      { query: 'getpath(["a", "b"])', desc: 'Get value by path' },
+      { query: 'setpath(["a", "b"]; 123)', desc: 'Set value by path' },
+      { query: 'path(.a.b)', desc: 'Get path to field' }
+    ]
+  },
+  practical: {
+    title: 'Practical Patterns',
+    items: [
+      { query: '[.users[] | {name, email}]', desc: 'Extract specific fields' },
+      { query: '.users | map(select(.active)) | sort_by(.name)', desc: 'Filter, sort pipeline' },
+      { query: 'group_by(.category) | map({category: .[0].category, items: .})', desc: 'Group and reshape' },
+      { query: '[.[] | select(.tags | contains(["featured"]))]', desc: 'Filter by array contains' },
+      { query: '.data | to_entries | map(select(.value > 10)) | from_entries', desc: 'Filter object entries' },
+      { query: '.[] | select(.date | test("2024"))', desc: 'Filter by string pattern' },
+      { query: '[.[] | .total = (.price * .quantity)]', desc: 'Add calculated field' },
+      { query: '{users: [.users[] | {name, age}], count: (.users | length)}', desc: 'Build new structure' }
+    ]
+  }
+};
 
 export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   const panel = document.createElement('div');
   panel.className = 'panel';
 
-  const cheatsheetHTML = CHEATSHEET_ITEMS.map(item =>
-    `<div class="cheatsheet-item" data-query="${escapeHtml(item.query)}">
-      <code>${escapeHtml(item.query)}</code> - ${item.desc}
-    </div>`
+  // Generate tabs HTML
+  const categoryKeys = Object.keys(CHEATSHEET_CATEGORIES);
+  const tabsHTML = categoryKeys.map((key, index) =>
+    `<button class="cheatsheet-tab ${index === 0 ? 'active' : ''}" data-category="${key}">
+      ${CHEATSHEET_CATEGORIES[key].title}
+    </button>`
   ).join('');
+
+  // Generate category content HTML
+  const categoriesHTML = categoryKeys.map((key, index) => {
+    const items = CHEATSHEET_CATEGORIES[key].items;
+    const itemsHTML = items.map(item =>
+      `<div class="cheatsheet-item" data-query="${escapeHtml(item.query)}">
+        <code>${escapeHtml(item.query)}</code>
+        <span class="cheatsheet-desc">${item.desc}</span>
+      </div>`
+    ).join('');
+
+    return `<div class="cheatsheet-category ${index === 0 ? 'active' : ''}" data-category="${key}">
+      ${itemsHTML}
+    </div>`;
+  }).join('');
 
   panel.innerHTML = `
     <div class="panel-header">
@@ -40,8 +184,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
       </div>
     </div>
     <div class="cheatsheet" id="cheatsheet">
+      <div class="cheatsheet-tabs">
+        ${tabsHTML}
+      </div>
       <div class="cheatsheet-content">
-        ${cheatsheetHTML}
+        ${categoriesHTML}
       </div>
     </div>
     <div class="panel-content">
@@ -100,6 +247,21 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   panel.querySelector('#savedQueriesBtn').addEventListener('click', () => {
     historyList.classList.remove('show');
     savedQueriesList.classList.toggle('show');
+  });
+
+  // Cheatsheet tab switching
+  panel.querySelectorAll('.cheatsheet-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const category = tab.dataset.category;
+
+      // Update active tab
+      panel.querySelectorAll('.cheatsheet-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      // Update active category
+      panel.querySelectorAll('.cheatsheet-category').forEach(c => c.classList.remove('active'));
+      panel.querySelector(`.cheatsheet-category[data-category="${category}"]`).classList.add('active');
+    });
   });
 
   // Cheatsheet items

@@ -1,5 +1,5 @@
 .claude/*
-.mcp-playwright/*
+.playwright-mcp/*
 .bak
 node_modules
 dist
