@@ -7,6 +7,7 @@ export function createInputPanel(onInputChange) {
     <div class="panel-header">
       <span class="panel-title">Input</span>
       <div class="panel-actions">
+        <button id="formatJsonBtn" title="Format JSON (Ctrl+Shift+F)">Format</button>
         <button id="clearInputBtn">Clear</button>
         <button id="loadFileBtn">Load File</button>
         <input type="file" id="fileInput" accept=".json,.txt" style="display: none;">
@@ -28,9 +29,33 @@ export function createInputPanel(onInputChange) {
   const panelContent = panel.querySelector('.panel-content');
   const dragOverlay = panel.querySelector('#dragOverlay');
 
+  // Format JSON function
+  const formatJson = () => {
+    const value = textarea.value.trim();
+    if (!value) return;
+
+    try {
+      const parsed = JSON.parse(value);
+      textarea.value = JSON.stringify(parsed, null, 4);
+      onInputChange();
+    } catch (error) {
+      alert('Invalid JSON: ' + error.message);
+    }
+  };
+
   // Event listeners
   textarea.addEventListener('input', onInputChange);
-  textarea.addEventListener('keydown', handleTabKey);
+  textarea.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+F: Format JSON
+    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      formatJson();
+      return;
+    }
+    handleTabKey(e);
+  });
+
+  panel.querySelector('#formatJsonBtn').addEventListener('click', formatJson);
 
   panel.querySelector('#clearInputBtn').addEventListener('click', () => {
     textarea.value = '';

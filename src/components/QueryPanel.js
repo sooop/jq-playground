@@ -16,7 +16,7 @@ const CHEATSHEET_ITEMS = [
   { query: 'if .age > 25 then "adult" else "young" end', desc: 'Condition' }
 ];
 
-export function createQueryPanel(onQueryChange, onShowSaveModal) {
+export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   const panel = document.createElement('div');
   panel.className = 'panel';
 
@@ -30,6 +30,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal) {
     <div class="panel-header">
       <span class="panel-title">Query</span>
       <div class="panel-actions history-dropdown">
+        <button id="executeQueryBtn" class="primary" title="Execute query (Ctrl+Enter)">Execute</button>
         <button id="saveQueryBtn">Save</button>
         <button id="savedQueriesBtn">Saved</button>
         <button id="historyBtn">History</button>
@@ -59,7 +60,23 @@ export function createQueryPanel(onQueryChange, onShowSaveModal) {
 
   // Event listeners
   textarea.addEventListener('input', onQueryChange);
-  textarea.addEventListener('keydown', handleTabKey);
+  textarea.addEventListener('keydown', (e) => {
+    // Ctrl+Enter: Execute query immediately
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      if (onExecute) {
+        onExecute();
+      }
+      return;
+    }
+    handleTabKey(e);
+  });
+
+  panel.querySelector('#executeQueryBtn').addEventListener('click', () => {
+    if (onExecute) {
+      onExecute();
+    }
+  });
 
   panel.querySelector('#clearQueryBtn').addEventListener('click', () => {
     textarea.value = '';

@@ -8,6 +8,7 @@ export function createOutputPanel() {
     <div class="panel-header">
       <span class="panel-title">Output</span>
       <div class="panel-actions">
+        <button id="autoPlayBtn" class="auto-play-btn active" title="Toggle auto-execute (Ctrl+Shift+E)">▶</button>
         <select id="formatSelect">
           <option value="json">JSON</option>
           <option value="csv">CSV</option>
@@ -24,12 +25,14 @@ export function createOutputPanel() {
 
   const output = panel.querySelector('#output');
   const errorBanner = panel.querySelector('#errorBanner');
+  const autoPlayBtn = panel.querySelector('#autoPlayBtn');
   const formatSelect = panel.querySelector('#formatSelect');
   const copyBtn = panel.querySelector('#copyBtn');
   const downloadBtn = panel.querySelector('#downloadBtn');
 
   let lastResultData = null;
   let errorTimeout = null;
+  let autoPlayEnabled = true;
 
   // Public methods
   const api = {
@@ -39,11 +42,12 @@ export function createOutputPanel() {
 
     showResult: (data, format) => {
       lastResultData = data;
+      const isArray = Array.isArray(data);
 
       if (format === 'json') {
         output.textContent = JSON.stringify(data, null, 2);
       } else if (format === 'csv') {
-        output.innerHTML = jsonToHTML(data);
+        output.innerHTML = jsonToHTML(data, isArray);
       }
 
       api.hideError();
@@ -76,10 +80,30 @@ export function createOutputPanel() {
       output.textContent = '';
       lastResultData = null;
       api.hideError();
+    },
+
+    isAutoPlayEnabled: () => autoPlayEnabled,
+
+    toggleAutoPlay: () => {
+      autoPlayEnabled = !autoPlayEnabled;
+      if (autoPlayEnabled) {
+        autoPlayBtn.classList.add('active');
+        autoPlayBtn.textContent = '▶';
+        autoPlayBtn.title = 'Pause auto-execute (Ctrl+Shift+E)';
+      } else {
+        autoPlayBtn.classList.remove('active');
+        autoPlayBtn.textContent = '⏸';
+        autoPlayBtn.title = 'Resume auto-execute (Ctrl+Shift+E)';
+      }
+      return autoPlayEnabled;
     }
   };
 
   // Event listeners
+  autoPlayBtn.addEventListener('click', () => {
+    api.toggleAutoPlay();
+  });
+
   copyBtn.addEventListener('click', () => {
     const format = formatSelect.value;
     let text;

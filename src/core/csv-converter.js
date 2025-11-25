@@ -36,8 +36,10 @@ function escapeHtml(text) {
   return text.replace(/[&<>"']/g, m => map[m]);
 }
 
-export function jsonToHTML(data) {
-  if (!Array.isArray(data)) {
+export function jsonToHTML(data, isActualArray = true) {
+  const wasArray = Array.isArray(data);
+
+  if (!wasArray) {
     data = [data];
   }
 
@@ -56,6 +58,7 @@ export function jsonToHTML(data) {
   }
 
   let warningMsg = '';
+
   let displayRows = rows;
   if (rows.length > MAX_TABLE_ROWS) {
     warningMsg = `<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">

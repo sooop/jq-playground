@@ -34,7 +34,8 @@ export class App {
     this.inputPanel = createInputPanel(() => this.executeQuery());
     this.queryPanel = createQueryPanel(
       () => this.executeQuery(),
-      (query) => this.modal.api.show(query)
+      (query) => this.modal.api.show(query),
+      () => this.manualExecute()
     );
     this.outputPanel = createOutputPanel();
 
@@ -63,18 +64,40 @@ export class App {
     app.appendChild(container);
     app.appendChild(this.modal);
 
-    // Format change listener
+    // Format change listener - force execute even if paused
     this.outputPanel.querySelector('#formatSelect').addEventListener('change', () => {
-      this.executeQuery();
+      this.executeQuery(true);
+    });
+
+    // Global keyboard shortcuts
+    document.addEventListener('keydown', (e) => {
+      // Ctrl+Shift+E: Toggle auto-play
+      if (e.ctrlKey && e.shiftKey && e.key === 'E') {
+        e.preventDefault();
+        const enabled = this.outputPanel.api.toggleAutoPlay();
+        if (enabled) {
+          this.executeQuery();
+        }
+      }
     });
 
     // Initial execution
     this.executeQuery();
   }
 
-  executeQuery() {
+  manualExecute() {
+    // Execute once without changing auto-play state
+    this.executeQuery(true);
+  }
+
+  executeQuery(forceExecute = false) {
     clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(async () => {
+      // Check auto-play status unless force execute
+      if (!forceExecute && !this.outputPanel.api.isAutoPlayEnabled()) {
+        return;
+      }
+
       const input = this.inputPanel.querySelector('#input').value.trim();
       const query = this.queryPanel.api.getQuery();
       const format = this.outputPanel.api.getFormat();

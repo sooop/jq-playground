@@ -31,6 +31,8 @@ textarea, .output-content {
     resize: none;
     background: #fff;
     color: #333;
+    overflow: auto;
+    box-sizing: border-box;
 }
 
 textarea:focus {
@@ -95,6 +97,23 @@ button.primary {
 
 button.primary:hover {
     background: #444;
+}
+
+button.auto-play-btn {
+    font-size: 14px;
+    padding: 6px 10px;
+    font-family: monospace;
+}
+
+button.auto-play-btn.active {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-color: #a5d6a7;
+}
+
+button.auto-play-btn.active:hover {
+    background: #c8e6c9;
+    border-color: #81c784;
 }
 
 /* Select */
