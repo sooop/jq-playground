@@ -2,6 +2,16 @@ import { Storage } from '../utils/storage.js';
 
 const MAX_HISTORY = 20;
 
+// Helper function to read file
+function readFileContent(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => resolve(e.target.result);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsText(file);
+  });
+}
+
 const CHEATSHEET_CATEGORIES = {
   basic: {
     title: 'Basic',
@@ -179,8 +189,18 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         <button id="savedQueriesBtn">Saved</button>
         <button id="historyBtn">History</button>
         <button id="clearQueryBtn">Clear</button>
+        <input type="file" id="importQueriesFile" accept=".json" style="display: none;">
         <div class="history-list" id="historyList"></div>
-        <div class="history-list saved-queries-list" id="savedQueriesList"></div>
+        <div class="history-list saved-queries-list" id="savedQueriesList">
+          <div class="saved-queries-header">
+            <span class="saved-queries-title">Saved Queries</span>
+            <div class="saved-queries-actions">
+              <button id="importQueriesBtn" title="Import saved queries">Import</button>
+              <button id="exportQueriesBtn" title="Export saved queries">Export</button>
+            </div>
+          </div>
+          <div class="saved-queries-content" id="savedQueriesContent"></div>
+        </div>
       </div>
     </div>
     <div class="cheatsheet" id="cheatsheet">
@@ -200,6 +220,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   const cheatsheet = panel.querySelector('#cheatsheet');
   const historyList = panel.querySelector('#historyList');
   const savedQueriesList = panel.querySelector('#savedQueriesList');
+  const savedQueriesContent = panel.querySelector('#savedQueriesContent');
 
   // State
   let queryHistory = Storage.getHistory();
@@ -247,6 +268,92 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   panel.querySelector('#savedQueriesBtn').addEventListener('click', () => {
     historyList.classList.remove('show');
     savedQueriesList.classList.toggle('show');
+  });
+
+  panel.querySelector('#exportQueriesBtn').addEventListener('click', () => {
+    if (savedQueries.length === 0) {
+      alert('No saved queries to export');
+      return;
+    }
+
+    const exportData = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      queries: savedQueries
+    };
+
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jq-queries-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  const importFileInput = panel.querySelector('#importQueriesFile');
+
+  panel.querySelector('#importQueriesBtn').addEventListener('click', () => {
+    importFileInput.click();
+  });
+
+  importFileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const content = await readFileContent(file);
+      const importData = JSON.parse(content);
+
+      if (!importData.queries || !Array.isArray(importData.queries)) {
+        alert('Invalid file format');
+        return;
+      }
+
+      // Validate and merge queries
+      const validQueries = importData.queries.filter(q =>
+        q.name && q.query && typeof q.name === 'string' && typeof q.query === 'string'
+      );
+
+      if (validQueries.length === 0) {
+        alert('No valid queries found in file');
+        return;
+      }
+
+      // Ask user about merge strategy
+      const shouldMerge = confirm(
+        `Found ${validQueries.length} queries.\n\n` +
+        `OK: Merge with existing queries\n` +
+        `Cancel: Replace all existing queries`
+      );
+
+      if (shouldMerge) {
+        // Merge: Add new queries with updated IDs and timestamps
+        const newQueries = validQueries.map(q => ({
+          ...q,
+          id: Date.now() + Math.random(),
+          timestamp: new Date().toISOString()
+        }));
+        savedQueries = [...newQueries, ...savedQueries];
+      } else {
+        // Replace: Use imported queries with new IDs
+        savedQueries = validQueries.map(q => ({
+          ...q,
+          id: Date.now() + Math.random(),
+          timestamp: q.timestamp || new Date().toISOString()
+        }));
+      }
+
+      Storage.saveSavedQueries(savedQueries);
+      renderSavedQueries();
+
+      alert(`Successfully imported ${validQueries.length} queries`);
+    } catch (error) {
+      alert('Failed to import queries: ' + error.message);
+    }
+
+    e.target.value = '';
   });
 
   // Cheatsheet tab switching
@@ -344,11 +451,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
 
   function renderSavedQueries() {
     if (savedQueries.length === 0) {
-      savedQueriesList.innerHTML = '<div class="saved-query-item" style="cursor: default; color: #999; padding: 12px;">No saved queries</div>';
+      savedQueriesContent.innerHTML = '<div class="saved-query-item" style="cursor: default; color: #999; padding: 12px;">No saved queries</div>';
       return;
     }
 
-    savedQueriesList.innerHTML = savedQueries.map(sq => {
+    savedQueriesContent.innerHTML = savedQueries.map(sq => {
       const date = new Date(sq.timestamp);
       const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
       const preview = sq.query.length > 50 ? sq.query.substring(0, 50) + '...' : sq.query;
@@ -365,7 +472,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
       `;
     }).join('');
 
-    savedQueriesList.querySelectorAll('.load-query').forEach(el => {
+    savedQueriesContent.querySelectorAll('.load-query').forEach(el => {
       el.addEventListener('click', () => {
         const id = parseInt(el.dataset.id);
         const query = savedQueries.find(q => q.id === id);
@@ -377,7 +484,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
       });
     });
 
-    savedQueriesList.querySelectorAll('.delete-saved-query').forEach(btn => {
+    savedQueriesContent.querySelectorAll('.delete-saved-query').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (!confirm('Delete this saved query?')) return;
