@@ -3,6 +3,7 @@ import { createInputPanel } from './components/InputPanel.js';
 import { createQueryPanel } from './components/QueryPanel.js';
 import { createOutputPanel } from './components/OutputPanel.js';
 import { createSaveQueryModal, createHelpModal } from './components/Modal.js';
+import { createCheatsheet } from './components/Cheatsheet.js';
 import { jqEngine } from './core/jq-engine.js';
 
 export class App {
@@ -13,6 +14,7 @@ export class App {
     this.outputPanel = null;
     this.modal = null;
     this.helpModal = null;
+    this.cheatsheet = null;
   }
 
   async init() {
@@ -29,7 +31,7 @@ export class App {
     // Create components
     const header = createHeader(
       () => this.loadSample(),
-      () => this.queryPanel.api.toggleCheatsheet(),
+      () => this.cheatsheet.api.toggle(),
       () => this.helpModal.api.show()
     );
 
@@ -54,6 +56,13 @@ export class App {
 
     this.helpModal = createHelpModal();
 
+    this.cheatsheet = createCheatsheet((query) => {
+      const current = this.queryPanel.querySelector('#query').value;
+      this.queryPanel.querySelector('#query').value = current.trim() === '' ? query : current + ' | ' + query;
+      this.queryPanel.querySelector('#query').focus();
+      this.executeQuery();
+    });
+
     // Build layout
     const container = document.createElement('div');
     container.className = 'container';
@@ -70,6 +79,7 @@ export class App {
     main.appendChild(this.outputPanel);
 
     container.appendChild(header);
+    container.appendChild(this.cheatsheet);
     container.appendChild(main);
 
     app.appendChild(container);

@@ -1,6 +1,6 @@
 import { Storage } from '../utils/storage.js';
 
-const MAX_HISTORY = 20;
+const MAX_HISTORY = 100;
 
 // Helper function to read file
 function readFileContent(file) {
@@ -12,173 +12,39 @@ function readFileContent(file) {
   });
 }
 
-const CHEATSHEET_CATEGORIES = {
-  basic: {
-    title: 'Basic',
-    items: [
-      { query: '.', desc: 'Identity - returns input unchanged' },
-      { query: '.field', desc: 'Field access' },
-      { query: '.[]', desc: 'Array/object iterator' },
-      { query: '.[0]', desc: 'Array index access' },
-      { query: '.field?', desc: 'Optional field (no error if missing)' },
-      { query: '..', desc: 'Recursive descent (all values)' },
-      { query: '.field.nested', desc: 'Nested field access' },
-      { query: '.["field name"]', desc: 'Field with special chars' }
-    ]
-  },
-  filters: {
-    title: 'Filters & Selection',
-    items: [
-      { query: 'select(.age > 25)', desc: 'Filter by condition' },
-      { query: 'select(.city == "Seoul")', desc: 'Filter by equality' },
-      { query: 'select(.name | test("^A"))', desc: 'Filter by regex' },
-      { query: 'select(has("field"))', desc: 'Filter if key exists' },
-      { query: 'select(.tags | contains(["jq"]))', desc: 'Filter by array content' },
-      { query: 'map(select(.active))', desc: 'Filter within map' },
-      { query: '.[] | select(.price < 100)', desc: 'Iterate and filter' },
-      { query: 'limit(5; .[])', desc: 'Limit results' }
-    ]
-  },
-  arrays: {
-    title: 'Arrays',
-    items: [
-      { query: 'map(.name)', desc: 'Transform each element' },
-      { query: 'sort_by(.age)', desc: 'Sort by field' },
-      { query: 'reverse', desc: 'Reverse array' },
-      { query: 'unique', desc: 'Remove duplicates' },
-      { query: 'unique_by(.id)', desc: 'Unique by field' },
-      { query: 'group_by(.category)', desc: 'Group by field' },
-      { query: 'flatten', desc: 'Flatten nested arrays' },
-      { query: 'add', desc: 'Sum array elements' },
-      { query: 'min / max', desc: 'Min/max value' },
-      { query: 'min_by(.age) / max_by(.age)', desc: 'Min/max by field' },
-      { query: 'first / last', desc: 'First/last element' },
-      { query: '[.[] | .value * 2]', desc: 'Build new array' }
-    ]
-  },
-  objects: {
-    title: 'Objects',
-    items: [
-      { query: 'keys', desc: 'Object keys (sorted)' },
-      { query: 'values', desc: 'Object values' },
-      { query: 'to_entries', desc: 'Convert to [{key,value}]' },
-      { query: 'from_entries', desc: 'Convert from [{key,value}]' },
-      { query: 'with_entries(.value |= . * 2)', desc: 'Transform entries' },
-      { query: 'has("key")', desc: 'Check if key exists' },
-      { query: 'del(.field)', desc: 'Delete field' },
-      { query: '{name, age}', desc: 'Pick specific fields' },
-      { query: '{name: .fullName, age}', desc: 'Rename and pick fields' },
-      { query: '. + {new: "field"}', desc: 'Add/update fields' }
-    ]
-  },
-  strings: {
-    title: 'Strings',
-    items: [
-      { query: 'split(",")', desc: 'Split string' },
-      { query: 'join(", ")', desc: 'Join array to string' },
-      { query: 'test("pattern")', desc: 'Test regex match' },
-      { query: 'match("pattern")', desc: 'Get regex matches' },
-      { query: 'sub("old"; "new")', desc: 'Replace first match' },
-      { query: 'gsub("old"; "new")', desc: 'Replace all matches' },
-      { query: 'ascii_downcase', desc: 'Convert to lowercase' },
-      { query: 'ascii_upcase', desc: 'Convert to uppercase' },
-      { query: 'startswith("prefix")', desc: 'Check prefix' },
-      { query: 'ltrimstr("prefix")', desc: 'Remove prefix' },
-      { query: '@base64', desc: 'Base64 encode' },
-      { query: '@uri', desc: 'URL encode' }
-    ]
-  },
-  aggregation: {
-    title: 'Aggregation',
-    items: [
-      { query: 'length', desc: 'Length of array/object/string' },
-      { query: 'add', desc: 'Sum array of numbers' },
-      { query: '[.[] | .price] | add', desc: 'Sum specific field' },
-      { query: 'group_by(.type) | map({type: .[0].type, count: length})', desc: 'Count by group' },
-      { query: '[.[] | .amount] | add / length', desc: 'Calculate average' },
-      { query: 'map(.quantity) | add', desc: 'Total quantity' },
-      { query: 'any', desc: 'True if any value is true' },
-      { query: 'all', desc: 'True if all values are true' }
-    ]
-  },
-  conditionals: {
-    title: 'Conditionals',
-    items: [
-      { query: 'if .age >= 18 then "adult" else "minor" end', desc: 'If-then-else' },
-      { query: 'if .score > 90 then "A" elif .score > 80 then "B" else "C" end', desc: 'Multiple conditions' },
-      { query: '.name // "unknown"', desc: 'Alternative operator (default)' },
-      { query: 'select(.value != null)', desc: 'Filter null values' },
-      { query: '.field // empty', desc: 'Skip if null/false' },
-      { query: 'if . then "yes" else "no" end', desc: 'Boolean check' }
-    ]
-  },
-  conversion: {
-    title: 'Type & Format',
-    items: [
-      { query: 'type', desc: 'Get value type' },
-      { query: 'tonumber', desc: 'Convert to number' },
-      { query: 'tostring', desc: 'Convert to string' },
-      { query: '@json', desc: 'Format as JSON string' },
-      { query: '@csv', desc: 'Format as CSV' },
-      { query: '@tsv', desc: 'Format as TSV' },
-      { query: '@html', desc: 'HTML escape' },
-      { query: '@text', desc: 'Plain text output' },
-      { query: 'map(tonumber)', desc: 'Convert array to numbers' }
-    ]
-  },
-  advanced: {
-    title: 'Advanced',
-    items: [
-      { query: 'reduce .[] as $item (0; . + $item)', desc: 'Reduce with accumulator' },
-      { query: 'recurse(.children[]?)', desc: 'Recursive traversal' },
-      { query: 'walk(if type == "string" then ascii_upcase else . end)', desc: 'Walk and transform' },
-      { query: '[paths(scalars)]', desc: 'All paths to leaf values' },
-      { query: 'getpath(["a", "b"])', desc: 'Get value by path' },
-      { query: 'setpath(["a", "b"]; 123)', desc: 'Set value by path' },
-      { query: 'path(.a.b)', desc: 'Get path to field' }
-    ]
-  },
-  practical: {
-    title: 'Practical Patterns',
-    items: [
-      { query: '[.users[] | {name, email}]', desc: 'Extract specific fields' },
-      { query: '.users | map(select(.active)) | sort_by(.name)', desc: 'Filter, sort pipeline' },
-      { query: 'group_by(.category) | map({category: .[0].category, items: .})', desc: 'Group and reshape' },
-      { query: '[.[] | select(.tags | contains(["featured"]))]', desc: 'Filter by array contains' },
-      { query: '.data | to_entries | map(select(.value > 10)) | from_entries', desc: 'Filter object entries' },
-      { query: '.[] | select(.date | test("2024"))', desc: 'Filter by string pattern' },
-      { query: '[.[] | .total = (.price * .quantity)]', desc: 'Add calculated field' },
-      { query: '{users: [.users[] | {name, age}], count: (.users | length)}', desc: 'Build new structure' }
-    ]
+// Fuzzy matching algorithm
+function fuzzyMatch(pattern, text) {
+  if (!pattern) return true;
+
+  pattern = pattern.toLowerCase();
+  text = text.toLowerCase();
+
+  let patternIdx = 0;
+  let textIdx = 0;
+  let score = 0;
+  let consecutiveMatch = 0;
+
+  while (patternIdx < pattern.length && textIdx < text.length) {
+    if (pattern[patternIdx] === text[textIdx]) {
+      score += 1 + consecutiveMatch;
+      consecutiveMatch++;
+      patternIdx++;
+    } else {
+      consecutiveMatch = 0;
+    }
+    textIdx++;
   }
-};
+
+  if (patternIdx === pattern.length) {
+    return { match: true, score };
+  }
+
+  return { match: false, score: 0 };
+}
 
 export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   const panel = document.createElement('div');
   panel.className = 'panel';
-
-  // Generate tabs HTML
-  const categoryKeys = Object.keys(CHEATSHEET_CATEGORIES);
-  const tabsHTML = categoryKeys.map((key, index) =>
-    `<button class="cheatsheet-tab ${index === 0 ? 'active' : ''}" data-category="${key}">
-      ${CHEATSHEET_CATEGORIES[key].title}
-    </button>`
-  ).join('');
-
-  // Generate category content HTML
-  const categoriesHTML = categoryKeys.map((key, index) => {
-    const items = CHEATSHEET_CATEGORIES[key].items;
-    const itemsHTML = items.map(item =>
-      `<div class="cheatsheet-item" data-query="${escapeHtml(item.query)}">
-        <code>${escapeHtml(item.query)}</code>
-        <span class="cheatsheet-desc">${item.desc}</span>
-      </div>`
-    ).join('');
-
-    return `<div class="cheatsheet-category ${index === 0 ? 'active' : ''}" data-category="${key}">
-      ${itemsHTML}
-    </div>`;
-  }).join('');
 
   panel.innerHTML = `
     <div class="panel-header">
@@ -190,7 +56,17 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         <button id="historyBtn">History</button>
         <button id="clearQueryBtn">Clear</button>
         <input type="file" id="importQueriesFile" accept=".json" style="display: none;">
-        <div class="history-list" id="historyList"></div>
+        <input type="file" id="importHistoryFile" accept=".json" style="display: none;">
+        <div class="history-list" id="historyList">
+          <div class="history-header">
+            <input type="text" class="history-search" id="historySearch" placeholder="Search history..." />
+            <div class="history-actions">
+              <button id="importHistoryBtn" title="Import history">Import</button>
+              <button id="exportHistoryBtn" title="Export history">Export</button>
+            </div>
+          </div>
+          <div class="history-content" id="historyContent"></div>
+        </div>
         <div class="history-list saved-queries-list" id="savedQueriesList">
           <div class="saved-queries-header">
             <span class="saved-queries-title">Saved Queries</span>
@@ -203,22 +79,15 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         </div>
       </div>
     </div>
-    <div class="cheatsheet" id="cheatsheet">
-      <div class="cheatsheet-tabs">
-        ${tabsHTML}
-      </div>
-      <div class="cheatsheet-content">
-        ${categoriesHTML}
-      </div>
-    </div>
     <div class="panel-content">
       <textarea id="query" placeholder="Enter jq query...">.users[] | select(.age > 25)</textarea>
     </div>
   `;
 
   const textarea = panel.querySelector('#query');
-  const cheatsheet = panel.querySelector('#cheatsheet');
   const historyList = panel.querySelector('#historyList');
+  const historySearch = panel.querySelector('#historySearch');
+  const historyContent = panel.querySelector('#historyContent');
   const savedQueriesList = panel.querySelector('#savedQueriesList');
   const savedQueriesContent = panel.querySelector('#savedQueriesContent');
 
@@ -263,6 +132,103 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   panel.querySelector('#historyBtn').addEventListener('click', () => {
     savedQueriesList.classList.remove('show');
     historyList.classList.toggle('show');
+    if (historyList.classList.contains('show')) {
+      historySearch.focus();
+    }
+  });
+
+  // History search
+  historySearch.addEventListener('input', (e) => {
+    renderHistory(e.target.value);
+  });
+
+  // History search - prevent closing dropdown on click
+  historySearch.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  // Export history
+  panel.querySelector('#exportHistoryBtn').addEventListener('click', () => {
+    if (queryHistory.length === 0) {
+      alert('No history to export');
+      return;
+    }
+
+    const exportData = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      history: queryHistory
+    };
+
+    const jsonStr = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jq-history-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Import history
+  const importHistoryFile = panel.querySelector('#importHistoryFile');
+
+  panel.querySelector('#importHistoryBtn').addEventListener('click', () => {
+    importHistoryFile.click();
+  });
+
+  importHistoryFile.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const content = await readFileContent(file);
+      const importData = JSON.parse(content);
+
+      if (!importData.history || !Array.isArray(importData.history)) {
+        alert('Invalid file format');
+        return;
+      }
+
+      // Validate history items
+      const validHistory = importData.history.filter(q => typeof q === 'string' && q.trim());
+
+      if (validHistory.length === 0) {
+        alert('No valid history found in file');
+        return;
+      }
+
+      // Ask user about merge strategy
+      const shouldMerge = confirm(
+        `Found ${validHistory.length} history items.\n\n` +
+        `OK: Merge with existing history\n` +
+        `Cancel: Replace all existing history`
+      );
+
+      if (shouldMerge) {
+        // Merge: Add new items (avoiding duplicates)
+        const existingSet = new Set(queryHistory);
+        const newItems = validHistory.filter(q => !existingSet.has(q));
+        queryHistory = [...newItems, ...queryHistory];
+      } else {
+        // Replace
+        queryHistory = validHistory;
+      }
+
+      // Keep within MAX_HISTORY limit
+      if (queryHistory.length > MAX_HISTORY) {
+        queryHistory = queryHistory.slice(0, MAX_HISTORY);
+      }
+
+      Storage.saveHistory(queryHistory);
+      renderHistory(historySearch.value);
+
+      alert(`Successfully imported ${validHistory.length} history items`);
+    } catch (error) {
+      alert('Failed to import history: ' + error.message);
+    }
+
+    e.target.value = '';
   });
 
   panel.querySelector('#savedQueriesBtn').addEventListener('click', () => {
@@ -356,32 +322,6 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     e.target.value = '';
   });
 
-  // Cheatsheet tab switching
-  panel.querySelectorAll('.cheatsheet-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const category = tab.dataset.category;
-
-      // Update active tab
-      panel.querySelectorAll('.cheatsheet-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      // Update active category
-      panel.querySelectorAll('.cheatsheet-category').forEach(c => c.classList.remove('active'));
-      panel.querySelector(`.cheatsheet-category[data-category="${category}"]`).classList.add('active');
-    });
-  });
-
-  // Cheatsheet items
-  panel.querySelectorAll('.cheatsheet-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const query = item.dataset.query;
-      const current = textarea.value;
-      textarea.value = current.trim() === '' ? query : current + ' | ' + query;
-      textarea.focus();
-      onQueryChange();
-    });
-  });
-
   // Close dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     const dropdown = panel.querySelector('.history-dropdown');
@@ -394,10 +334,6 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   // Public methods
   const api = {
     getQuery: () => textarea.value.trim(),
-
-    toggleCheatsheet: () => {
-      cheatsheet.classList.toggle('open');
-    },
 
     addToHistory: (query) => {
       if (!query || query === queryHistory[0]) return;
@@ -427,22 +363,38 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     }
   };
 
-  function renderHistory() {
+  function renderHistory(searchTerm = '') {
     if (queryHistory.length === 0) {
-      historyList.innerHTML = '<div class="history-item" style="cursor: default; color: #999;">No history</div>';
+      historyContent.innerHTML = '<div class="history-item" style="cursor: default; color: #999;">No history</div>';
       return;
     }
 
-    historyList.innerHTML = queryHistory.map(q =>
+    // Filter and sort by fuzzy match score
+    let filteredHistory = queryHistory;
+    if (searchTerm) {
+      filteredHistory = queryHistory
+        .map(q => ({ query: q, ...fuzzyMatch(searchTerm, q) }))
+        .filter(item => item.match)
+        .sort((a, b) => b.score - a.score)
+        .map(item => item.query);
+    }
+
+    if (filteredHistory.length === 0) {
+      historyContent.innerHTML = '<div class="history-item" style="cursor: default; color: #999;">No matching history</div>';
+      return;
+    }
+
+    historyContent.innerHTML = filteredHistory.map(q =>
       `<div class="history-item" data-query="${escapeHtml(q)}">${escapeHtml(q)}</div>`
     ).join('');
 
-    historyList.querySelectorAll('.history-item').forEach(item => {
+    historyContent.querySelectorAll('.history-item').forEach(item => {
       item.addEventListener('click', () => {
         const query = item.dataset.query;
         if (query) {
           textarea.value = query;
           historyList.classList.remove('show');
+          historySearch.value = '';
           onQueryChange();
         }
       });
