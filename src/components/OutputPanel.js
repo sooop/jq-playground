@@ -95,6 +95,12 @@ export function createOutputPanel() {
         autoPlayBtn.textContent = '⏸';
         autoPlayBtn.title = 'Resume auto-execute (Ctrl+Shift+E)';
       }
+
+      // Trigger callback when auto-play is enabled
+      if (autoPlayEnabled && panel.onAutoPlayToggle) {
+        panel.onAutoPlayToggle(autoPlayEnabled);
+      }
+
       return autoPlayEnabled;
     }
   };

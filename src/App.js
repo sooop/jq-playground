@@ -2,7 +2,7 @@ import { createHeader } from './components/Header.js';
 import { createInputPanel } from './components/InputPanel.js';
 import { createQueryPanel } from './components/QueryPanel.js';
 import { createOutputPanel } from './components/OutputPanel.js';
-import { createSaveQueryModal } from './components/Modal.js';
+import { createSaveQueryModal, createHelpModal } from './components/Modal.js';
 import { jqEngine } from './core/jq-engine.js';
 
 export class App {
@@ -12,6 +12,7 @@ export class App {
     this.queryPanel = null;
     this.outputPanel = null;
     this.modal = null;
+    this.helpModal = null;
   }
 
   async init() {
@@ -28,7 +29,8 @@ export class App {
     // Create components
     const header = createHeader(
       () => this.loadSample(),
-      () => this.queryPanel.api.toggleCheatsheet()
+      () => this.queryPanel.api.toggleCheatsheet(),
+      () => this.helpModal.api.show()
     );
 
     this.inputPanel = createInputPanel(() => this.executeQuery());
@@ -39,9 +41,18 @@ export class App {
     );
     this.outputPanel = createOutputPanel();
 
+    // Set up auto-play toggle callback
+    this.outputPanel.onAutoPlayToggle = (enabled) => {
+      if (enabled) {
+        this.executeQuery();
+      }
+    };
+
     this.modal = createSaveQueryModal((name, query) => {
       this.queryPanel.api.saveQuery(name, query);
     });
+
+    this.helpModal = createHelpModal();
 
     // Build layout
     const container = document.createElement('div');
@@ -63,6 +74,7 @@ export class App {
 
     app.appendChild(container);
     app.appendChild(this.modal);
+    app.appendChild(this.helpModal);
 
     // Format change listener - force execute even if paused
     this.outputPanel.querySelector('#formatSelect').addEventListener('change', () => {
@@ -74,10 +86,8 @@ export class App {
       // Ctrl+Shift+E: Toggle auto-play
       if (e.ctrlKey && e.shiftKey && e.key === 'E') {
         e.preventDefault();
-        const enabled = this.outputPanel.api.toggleAutoPlay();
-        if (enabled) {
-          this.executeQuery();
-        }
+        this.outputPanel.api.toggleAutoPlay();
+        // Callback will be triggered automatically
       }
     });
 
