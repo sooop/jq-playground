@@ -1,4 +1,5 @@
 import { Storage } from '../utils/storage.js';
+import { filterFunctions } from '../core/jq-functions.js';
 
 const MAX_HISTORY = 100;
 
@@ -79,8 +80,9 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         </div>
       </div>
     </div>
-    <div class="panel-content">
+    <div class="panel-content autocomplete-container">
       <textarea id="query" placeholder="Enter jq query...">.users[] | select(.age > 25)</textarea>
+      <div class="autocomplete-list" id="autocompleteList"></div>
     </div>
   `;
 
@@ -90,14 +92,44 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   const historyContent = panel.querySelector('#historyContent');
   const savedQueriesList = panel.querySelector('#savedQueriesList');
   const savedQueriesContent = panel.querySelector('#savedQueriesContent');
+  const autocompleteList = panel.querySelector('#autocompleteList');
 
   // State
   let queryHistory = Storage.getHistory();
   let savedQueries = Storage.getSavedQueries();
+  let autocompleteItems = [];
+  let selectedAutocompleteIndex = -1;
 
   // Event listeners
-  textarea.addEventListener('input', onQueryChange);
+  textarea.addEventListener('input', (e) => {
+    onQueryChange();
+    updateAutocomplete();
+  });
+
   textarea.addEventListener('keydown', (e) => {
+    // Handle autocomplete navigation
+    if (autocompleteList.classList.contains('show')) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedAutocompleteIndex = Math.min(selectedAutocompleteIndex + 1, autocompleteItems.length - 1);
+        renderAutocomplete();
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedAutocompleteIndex = Math.max(selectedAutocompleteIndex - 1, 0);
+        renderAutocomplete();
+        return;
+      } else if (e.key === 'Enter' && selectedAutocompleteIndex >= 0) {
+        e.preventDefault();
+        applyAutocomplete(autocompleteItems[selectedAutocompleteIndex]);
+        return;
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        hideAutocomplete();
+        return;
+      }
+    }
+
     // Ctrl+Enter: Execute query immediately
     if (e.ctrlKey && e.key === 'Enter') {
       e.preventDefault();
@@ -447,6 +479,107 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         renderSavedQueries();
       });
     });
+  }
+
+  // Autocomplete functions
+  function getCurrentWord() {
+    const text = textarea.value;
+    const cursor = textarea.selectionStart;
+
+    // Find the start of the current word
+    let start = cursor - 1;
+    while (start >= 0 && /[a-zA-Z0-9_]/.test(text[start])) {
+      start--;
+    }
+    start++;
+
+    // Find the end of the current word
+    let end = cursor;
+    while (end < text.length && /[a-zA-Z0-9_]/.test(text[end])) {
+      end++;
+    }
+
+    // Check if there's a '.' immediately before the word (field access)
+    const charBeforeWord = start > 0 ? text[start - 1] : '';
+    const isFieldAccess = charBeforeWord === '.';
+
+    return {
+      word: text.substring(start, end),
+      start: start,
+      end: end,
+      isFieldAccess: isFieldAccess
+    };
+  }
+
+  function updateAutocomplete() {
+    const { word, isFieldAccess } = getCurrentWord();
+
+    // Don't show autocomplete for field access (e.g., .foo, .bar)
+    if (isFieldAccess) {
+      hideAutocomplete();
+      return;
+    }
+
+    if (word.length < 1) {
+      hideAutocomplete();
+      return;
+    }
+
+    const matches = filterFunctions(word);
+
+    if (matches.length === 0) {
+      hideAutocomplete();
+      return;
+    }
+
+    autocompleteItems = matches;
+    selectedAutocompleteIndex = 0;
+    renderAutocomplete();
+    autocompleteList.classList.add('show');
+  }
+
+  function renderAutocomplete() {
+    if (autocompleteItems.length === 0) {
+      hideAutocomplete();
+      return;
+    }
+
+    autocompleteList.innerHTML = autocompleteItems.map((item, index) => `
+      <div class="autocomplete-item ${index === selectedAutocompleteIndex ? 'selected' : ''}" data-index="${index}">
+        <span class="autocomplete-name">${escapeHtml(item.name)}</span>
+        <span class="autocomplete-desc">${escapeHtml(item.desc)}</span>
+      </div>
+    `).join('');
+
+    // Add click listeners
+    autocompleteList.querySelectorAll('.autocomplete-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const index = parseInt(item.dataset.index);
+        applyAutocomplete(autocompleteItems[index]);
+      });
+    });
+
+    // Scroll selected item into view
+    const selectedItem = autocompleteList.querySelector('.autocomplete-item.selected');
+    if (selectedItem) {
+      selectedItem.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function applyAutocomplete(item) {
+    const { start, end } = getCurrentWord();
+    const text = textarea.value;
+    const newText = text.substring(0, start) + item.name + text.substring(end);
+    textarea.value = newText;
+    textarea.selectionStart = textarea.selectionEnd = start + item.name.length;
+    hideAutocomplete();
+    onQueryChange();
+  }
+
+  function hideAutocomplete() {
+    autocompleteList.classList.remove('show');
+    autocompleteItems = [];
+    selectedAutocompleteIndex = -1;
   }
 
   renderHistory();
