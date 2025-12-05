@@ -22,16 +22,16 @@ body {
 
 .main {
     display: grid;
-    grid-template-rows: 1fr 1fr;
-    gap: 1px;
+    grid-template-rows: 1fr 4px 1fr;
+    gap: 0;
     background: #ddd;
     overflow: hidden;
 }
 
 .top-panel {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1px;
+    grid-template-columns: 1fr 4px 1fr;
+    gap: 0;
     background: #ddd;
 }
 
@@ -49,6 +49,9 @@ body {
     justify-content: space-between;
     align-items: center;
     background: #fafafa;
+    position: relative;
+    overflow: visible;
+    z-index: 1;
 }
 
 .panel-title {
@@ -68,4 +71,44 @@ body {
     flex: 1;
     overflow: hidden;
     position: relative;
+}
+
+/* Resizer */
+.resizer {
+    background: #ddd;
+    position: relative;
+    z-index: 10;
+}
+
+.resizer.horizontal {
+    cursor: col-resize;
+}
+
+.resizer.vertical {
+    cursor: row-resize;
+}
+
+.resizer:hover {
+    background: #bbb;
+}
+
+.resizer:active {
+    background: #999;
+}
+
+/* Responsive layout */
+@media (max-width: 768px) {
+    .top-panel {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 4px auto;
+    }
+
+    .resizer.horizontal {
+        cursor: row-resize;
+        height: 4px;
+    }
+
+    .main {
+        grid-template-rows: auto 4px auto 4px 1fr;
+    }
 }

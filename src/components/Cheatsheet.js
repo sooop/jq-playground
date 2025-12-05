@@ -1,3 +1,5 @@
+import { INPUT_TYPE_INFO } from '../core/jq-functions.js';
+
 const CHEATSHEET_CATEGORIES = {
   basic: {
     title: 'Basic',
@@ -17,37 +19,37 @@ const CHEATSHEET_CATEGORIES = {
   filters: {
     title: 'Filters & Selection',
     items: [
-      { query: 'select(.age > 25)', desc: 'Filter by condition' },
-      { query: 'select(.age >= 18 and .active)', desc: 'Multiple conditions with and' },
-      { query: 'select(.status != "deleted")', desc: 'Not equal filter' },
-      { query: 'select(.city == "Seoul")', desc: 'Filter by equality' },
-      { query: 'select(.name | test("^A"))', desc: 'Filter by regex' },
-      { query: 'select(has("field"))', desc: 'Filter if key exists' },
-      { query: 'select(.tags | contains(["jq"]))', desc: 'Filter by array content' },
-      { query: 'select(.tags | inside(["admin", "user"]))', desc: 'Check if all elements inside' },
-      { query: 'map(select(.active))', desc: 'Filter within map' },
+      { query: 'select(.age > 25)', desc: 'Filter by condition', inputType: 'item' },
+      { query: 'select(.age >= 18 and .active)', desc: 'Multiple conditions with and', inputType: 'item' },
+      { query: 'select(.status != "deleted")', desc: 'Not equal filter', inputType: 'item' },
+      { query: 'select(.city == "Seoul")', desc: 'Filter by equality', inputType: 'item' },
+      { query: 'select(.name | test("^A"))', desc: 'Filter by regex', inputType: 'item' },
+      { query: 'select(has("field"))', desc: 'Filter if key exists', inputType: 'item' },
+      { query: 'select(.tags | contains(["jq"]))', desc: 'Filter by array content', inputType: 'item' },
+      { query: 'select(.tags | inside(["admin", "user"]))', desc: 'Check if all elements inside', inputType: 'item' },
+      { query: 'map(select(.active))', desc: 'Filter within map', inputType: 'array' },
       { query: '.[] | select(.price < 100)', desc: 'Iterate and filter' }
     ]
   },
   arrays: {
     title: 'Arrays',
     items: [
-      { query: 'map(.name)', desc: 'Transform each element' },
-      { query: 'sort', desc: 'Sort array (simple values)' },
-      { query: 'sort_by(.age)', desc: 'Sort by field' },
-      { query: 'reverse', desc: 'Reverse array' },
-      { query: 'unique', desc: 'Remove duplicates' },
-      { query: 'unique_by(.id)', desc: 'Unique by field' },
-      { query: 'group_by(.category)', desc: 'Group by field' },
-      { query: 'flatten', desc: 'Flatten nested arrays' },
-      { query: 'flatten(1)', desc: 'Flatten one level deep' },
-      { query: 'add', desc: 'Sum array elements' },
-      { query: 'min', desc: 'Minimum value' },
-      { query: 'max', desc: 'Maximum value' },
-      { query: 'min_by(.age)', desc: 'Item with min field' },
-      { query: 'max_by(.age)', desc: 'Item with max field' },
-      { query: 'first', desc: 'First element' },
-      { query: 'last', desc: 'Last element' },
+      { query: 'map(.name)', desc: 'Transform each element', inputType: 'array' },
+      { query: 'sort', desc: 'Sort array (simple values)', inputType: 'array' },
+      { query: 'sort_by(.age)', desc: 'Sort by field', inputType: 'array' },
+      { query: 'reverse', desc: 'Reverse array', inputType: 'array' },
+      { query: 'unique', desc: 'Remove duplicates', inputType: 'array' },
+      { query: 'unique_by(.id)', desc: 'Unique by field', inputType: 'array' },
+      { query: 'group_by(.category)', desc: 'Group by field', inputType: 'array' },
+      { query: 'flatten', desc: 'Flatten nested arrays', inputType: 'array' },
+      { query: 'flatten(1)', desc: 'Flatten one level deep', inputType: 'array' },
+      { query: 'add', desc: 'Sum array elements', inputType: 'array' },
+      { query: 'min', desc: 'Minimum value', inputType: 'array' },
+      { query: 'max', desc: 'Maximum value', inputType: 'array' },
+      { query: 'min_by(.age)', desc: 'Item with min field', inputType: 'array' },
+      { query: 'max_by(.age)', desc: 'Item with max field', inputType: 'array' },
+      { query: 'first', desc: 'First element', inputType: 'array' },
+      { query: 'last', desc: 'Last element', inputType: 'array' },
       { query: 'nth(2)', desc: 'Get 3rd element (0-indexed)' },
       { query: 'indices("value")', desc: 'Find all indices of value' },
       { query: 'index("value")', desc: 'Find first index of value' },
@@ -59,18 +61,18 @@ const CHEATSHEET_CATEGORIES = {
   objects: {
     title: 'Objects',
     items: [
-      { query: '{name, age}', desc: 'Select fields' },
-      { query: '{name: .username, years: .age}', desc: 'Rename fields' },
-      { query: '{name, newField: .age * 2}', desc: 'Add computed field' },
-      { query: 'keys', desc: 'Get object keys (sorted)' },
-      { query: 'keys_unsorted', desc: 'Get keys in original order' },
-      { query: 'values', desc: 'Get object values' },
-      { query: 'has("key")', desc: 'Check if object has key' },
+      { query: '{name, age}', desc: 'Select fields', inputType: 'object' },
+      { query: '{name: .username, years: .age}', desc: 'Rename fields', inputType: 'object' },
+      { query: '{name, newField: .age * 2}', desc: 'Add computed field', inputType: 'object' },
+      { query: 'keys', desc: 'Get object keys (sorted)', inputType: 'array|object' },
+      { query: 'keys_unsorted', desc: 'Get keys in original order', inputType: 'array|object' },
+      { query: 'values', desc: 'Get object values', inputType: 'array|object' },
+      { query: 'has("key")', desc: 'Check if object has key', inputType: 'array|object' },
       { query: 'in({key: 1})', desc: 'Check if value in object' },
-      { query: 'to_entries', desc: 'Convert to [{key,value}]' },
-      { query: 'from_entries', desc: 'Convert from [{key,value}]' },
-      { query: 'with_entries(.value += 1)', desc: 'Transform all values' },
-      { query: 'with_entries(select(.value > 10))', desc: 'Filter object by value' },
+      { query: 'to_entries', desc: 'Convert to [{key,value}]', inputType: 'object' },
+      { query: 'from_entries', desc: 'Convert from [{key,value}]', inputType: 'array' },
+      { query: 'with_entries(.value += 1)', desc: 'Transform all values', inputType: 'object' },
+      { query: 'with_entries(select(.value > 10))', desc: 'Filter object by value', inputType: 'object' },
       { query: 'del(.field)', desc: 'Delete field' },
       { query: '. + {newField: "value"}', desc: 'Merge/add fields' },
       { query: '. * {field: "value"}', desc: 'Multiply/merge objects' }
@@ -79,20 +81,20 @@ const CHEATSHEET_CATEGORIES = {
   strings: {
     title: 'Strings',
     items: [
-      { query: 'length', desc: 'String length' },
-      { query: 'split(",")', desc: 'Split string by delimiter' },
-      { query: 'join(", ")', desc: 'Join array to string' },
-      { query: 'ascii_upcase', desc: 'Convert to uppercase' },
-      { query: 'ascii_downcase', desc: 'Convert to lowercase' },
-      { query: 'startswith("prefix")', desc: 'Check if starts with' },
-      { query: 'endswith("suffix")', desc: 'Check if ends with' },
-      { query: 'ltrimstr("prefix")', desc: 'Remove prefix' },
-      { query: 'rtrimstr("suffix")', desc: 'Remove suffix' },
+      { query: 'length', desc: 'String length', inputType: 'string' },
+      { query: 'split(",")', desc: 'Split string by delimiter', inputType: 'string' },
+      { query: 'join(", ")', desc: 'Join array to string', inputType: 'array' },
+      { query: 'ascii_upcase', desc: 'Convert to uppercase', inputType: 'string' },
+      { query: 'ascii_downcase', desc: 'Convert to lowercase', inputType: 'string' },
+      { query: 'startswith("prefix")', desc: 'Check if starts with', inputType: 'string' },
+      { query: 'endswith("suffix")', desc: 'Check if ends with', inputType: 'string' },
+      { query: 'ltrimstr("prefix")', desc: 'Remove prefix', inputType: 'string' },
+      { query: 'rtrimstr("suffix")', desc: 'Remove suffix', inputType: 'string' },
       { query: 'contains("sub")', desc: 'Check if contains substring' },
-      { query: 'test("pattern")', desc: 'Test regex match' },
-      { query: 'match("pattern")', desc: 'Get regex match details' },
-      { query: 'sub("old"; "new")', desc: 'Replace first occurrence' },
-      { query: 'gsub("old"; "new")', desc: 'Replace all occurrences' }
+      { query: 'test("pattern")', desc: 'Test regex match', inputType: 'string' },
+      { query: 'match("pattern")', desc: 'Get regex match details', inputType: 'string' },
+      { query: 'sub("old"; "new")', desc: 'Replace first occurrence', inputType: 'string' },
+      { query: 'gsub("old"; "new")', desc: 'Replace all occurrences', inputType: 'string' }
     ]
   },
   types: {
@@ -244,12 +246,17 @@ export function createCheatsheet(onQuerySelect) {
   // Generate category content HTML
   const categoriesHTML = categoryKeys.map((key, index) => {
     const items = CHEATSHEET_CATEGORIES[key].items;
-    const itemsHTML = items.map(item =>
-      `<div class="cheatsheet-item" data-query="${escapeHtml(item.query)}">
-        <code>${escapeHtml(item.query)}</code>
+    const itemsHTML = items.map(item => {
+      const typeBadge = item.inputType ?
+        `<span class="cheatsheet-type" style="background: ${INPUT_TYPE_INFO[item.inputType]?.color || '#999'}22; color: ${INPUT_TYPE_INFO[item.inputType]?.color || '#999'}">${INPUT_TYPE_INFO[item.inputType]?.label || item.inputType}</span>` : '';
+      return `<div class="cheatsheet-item" data-query="${escapeHtml(item.query)}">
+        <div class="cheatsheet-query">
+          <code>${escapeHtml(item.query)}</code>
+          ${typeBadge}
+        </div>
         <span class="cheatsheet-desc">${item.desc}</span>
-      </div>`
-    ).join('');
+      </div>`;
+    }).join('');
 
     return `<div class="cheatsheet-category ${index === 0 ? 'active' : ''}" data-category="${key}">
       ${itemsHTML}

@@ -73,10 +73,25 @@ export class App {
     const topPanel = document.createElement('div');
     topPanel.className = 'top-panel';
     topPanel.appendChild(this.inputPanel);
+
+    // Horizontal resizer between input and query
+    const hResizer = document.createElement('div');
+    hResizer.className = 'resizer horizontal';
+    topPanel.appendChild(hResizer);
+
     topPanel.appendChild(this.queryPanel);
 
     main.appendChild(topPanel);
+
+    // Vertical resizer between top and output
+    const vResizer = document.createElement('div');
+    vResizer.className = 'resizer vertical';
+    main.appendChild(vResizer);
+
     main.appendChild(this.outputPanel);
+
+    // Initialize resizers
+    this.initResizers(topPanel, main, hResizer, vResizer);
 
     container.appendChild(header);
     container.appendChild(this.cheatsheet);
@@ -142,6 +157,48 @@ export class App {
         this.outputPanel.api.showError(error.message);
       }
     }, 500);
+  }
+
+  initResizers(topPanel, main, hResizer, vResizer) {
+    // Horizontal resizer (between input and query)
+    let isResizingH = false;
+    hResizer.addEventListener('mousedown', (e) => {
+      isResizingH = true;
+      document.body.style.cursor = 'col-resize';
+      e.preventDefault();
+    });
+
+    // Vertical resizer (between top and output)
+    let isResizingV = false;
+    vResizer.addEventListener('mousedown', (e) => {
+      isResizingV = true;
+      document.body.style.cursor = 'row-resize';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (isResizingH) {
+        const rect = topPanel.getBoundingClientRect();
+        const offsetX = e.clientX - rect.left;
+        const percentage = (offsetX / rect.width) * 100;
+        if (percentage > 20 && percentage < 80) {
+          topPanel.style.gridTemplateColumns = `${percentage}% 4px ${100 - percentage}%`;
+        }
+      } else if (isResizingV) {
+        const rect = main.getBoundingClientRect();
+        const offsetY = e.clientY - rect.top;
+        const percentage = (offsetY / rect.height) * 100;
+        if (percentage > 20 && percentage < 80) {
+          main.style.gridTemplateRows = `${percentage}% 4px ${100 - percentage}%`;
+        }
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      isResizingH = false;
+      isResizingV = false;
+      document.body.style.cursor = '';
+    });
   }
 
   loadSample() {

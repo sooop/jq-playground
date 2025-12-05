@@ -1,5 +1,5 @@
 import { Storage } from '../utils/storage.js';
-import { filterFunctions } from '../core/jq-functions.js';
+import { filterFunctions, INPUT_TYPE_INFO } from '../core/jq-functions.js';
 
 const MAX_HISTORY = 100;
 
@@ -58,26 +58,6 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         <button id="clearQueryBtn">Clear</button>
         <input type="file" id="importQueriesFile" accept=".json" style="display: none;">
         <input type="file" id="importHistoryFile" accept=".json" style="display: none;">
-        <div class="history-list" id="historyList">
-          <div class="history-header">
-            <input type="text" class="history-search" id="historySearch" placeholder="Search history..." />
-            <div class="history-actions">
-              <button id="importHistoryBtn" title="Import history">Import</button>
-              <button id="exportHistoryBtn" title="Export history">Export</button>
-            </div>
-          </div>
-          <div class="history-content" id="historyContent"></div>
-        </div>
-        <div class="history-list saved-queries-list" id="savedQueriesList">
-          <div class="saved-queries-header">
-            <span class="saved-queries-title">Saved Queries</span>
-            <div class="saved-queries-actions">
-              <button id="importQueriesBtn" title="Import saved queries">Import</button>
-              <button id="exportQueriesBtn" title="Export saved queries">Export</button>
-            </div>
-          </div>
-          <div class="saved-queries-content" id="savedQueriesContent"></div>
-        </div>
       </div>
     </div>
     <div class="panel-content autocomplete-container">
@@ -86,12 +66,42 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     </div>
   `;
 
+  // Create dropdown elements and append to body
+  const historyList = document.createElement('div');
+  historyList.className = 'history-list';
+  historyList.id = 'historyList';
+  historyList.innerHTML = `
+    <div class="history-header">
+      <input type="text" class="history-search" id="historySearch" placeholder="Search history..." />
+      <div class="history-actions">
+        <button id="importHistoryBtn" title="Import history">Import</button>
+        <button id="exportHistoryBtn" title="Export history">Export</button>
+      </div>
+    </div>
+    <div class="history-content" id="historyContent"></div>
+  `;
+  document.body.appendChild(historyList);
+
+  const savedQueriesList = document.createElement('div');
+  savedQueriesList.className = 'history-list saved-queries-list';
+  savedQueriesList.id = 'savedQueriesList';
+  savedQueriesList.innerHTML = `
+    <div class="saved-queries-header">
+      <input type="text" class="history-search" id="savedQueriesSearch" placeholder="Search saved queries..." />
+      <div class="saved-queries-actions">
+        <button id="importQueriesBtn" title="Import saved queries">Import</button>
+        <button id="exportQueriesBtn" title="Export saved queries">Export</button>
+      </div>
+    </div>
+    <div class="saved-queries-content" id="savedQueriesContent"></div>
+  `;
+  document.body.appendChild(savedQueriesList);
+
   const textarea = panel.querySelector('#query');
-  const historyList = panel.querySelector('#historyList');
-  const historySearch = panel.querySelector('#historySearch');
-  const historyContent = panel.querySelector('#historyContent');
-  const savedQueriesList = panel.querySelector('#savedQueriesList');
-  const savedQueriesContent = panel.querySelector('#savedQueriesContent');
+  const historySearch = historyList.querySelector('#historySearch');
+  const historyContent = historyList.querySelector('#historyContent');
+  const savedQueriesSearch = savedQueriesList.querySelector('#savedQueriesSearch');
+  const savedQueriesContent = savedQueriesList.querySelector('#savedQueriesContent');
   const autocompleteList = panel.querySelector('#autocompleteList');
 
   // State
@@ -99,6 +109,22 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   let savedQueries = Storage.getSavedQueries();
   let autocompleteItems = [];
   let selectedAutocompleteIndex = -1;
+
+  // Position dropdown relative to button
+  function positionDropdown(button, dropdown) {
+    const rect = button.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const dropdownMaxHeight = Math.min(300, viewportHeight - rect.bottom - 20);
+
+    dropdown.style.top = rect.bottom + 4 + 'px';
+    dropdown.style.right = (window.innerWidth - rect.right) + 'px';
+
+    // Update max-height for content
+    const content = dropdown.querySelector('.history-content, .saved-queries-content');
+    if (content) {
+      content.style.maxHeight = dropdownMaxHeight + 'px';
+    }
+  }
 
   // Event listeners
   textarea.addEventListener('input', (e) => {
@@ -161,10 +187,12 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     onShowSaveModal(query);
   });
 
-  panel.querySelector('#historyBtn').addEventListener('click', () => {
+  const historyBtn = panel.querySelector('#historyBtn');
+  historyBtn.addEventListener('click', () => {
     savedQueriesList.classList.remove('show');
     historyList.classList.toggle('show');
     if (historyList.classList.contains('show')) {
+      positionDropdown(historyBtn, historyList);
       historySearch.focus();
     }
   });
@@ -180,7 +208,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   });
 
   // Export history
-  panel.querySelector('#exportHistoryBtn').addEventListener('click', () => {
+  historyList.querySelector('#exportHistoryBtn').addEventListener('click', () => {
     if (queryHistory.length === 0) {
       alert('No history to export');
       return;
@@ -205,7 +233,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   // Import history
   const importHistoryFile = panel.querySelector('#importHistoryFile');
 
-  panel.querySelector('#importHistoryBtn').addEventListener('click', () => {
+  historyList.querySelector('#importHistoryBtn').addEventListener('click', () => {
     importHistoryFile.click();
   });
 
@@ -263,12 +291,27 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     e.target.value = '';
   });
 
-  panel.querySelector('#savedQueriesBtn').addEventListener('click', () => {
+  const savedQueriesBtn = panel.querySelector('#savedQueriesBtn');
+  savedQueriesBtn.addEventListener('click', () => {
     historyList.classList.remove('show');
     savedQueriesList.classList.toggle('show');
+    if (savedQueriesList.classList.contains('show')) {
+      positionDropdown(savedQueriesBtn, savedQueriesList);
+      savedQueriesSearch.focus();
+    }
   });
 
-  panel.querySelector('#exportQueriesBtn').addEventListener('click', () => {
+  // Saved queries search
+  savedQueriesSearch.addEventListener('input', (e) => {
+    renderSavedQueries(e.target.value);
+  });
+
+  // Saved queries search - prevent closing dropdown on click
+  savedQueriesSearch.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+
+  savedQueriesList.querySelector('#exportQueriesBtn').addEventListener('click', () => {
     if (savedQueries.length === 0) {
       alert('No saved queries to export');
       return;
@@ -292,7 +335,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
 
   const importFileInput = panel.querySelector('#importQueriesFile');
 
-  panel.querySelector('#importQueriesBtn').addEventListener('click', () => {
+  savedQueriesList.querySelector('#importQueriesBtn').addEventListener('click', () => {
     importFileInput.click();
   });
 
@@ -357,7 +400,9 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   // Close dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     const dropdown = panel.querySelector('.history-dropdown');
-    if (!dropdown.contains(e.target)) {
+    if (!dropdown.contains(e.target) &&
+        !historyList.contains(e.target) &&
+        !savedQueriesList.contains(e.target)) {
       historyList.classList.remove('show');
       savedQueriesList.classList.remove('show');
     }
@@ -433,13 +478,32 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     });
   }
 
-  function renderSavedQueries() {
+  function renderSavedQueries(searchTerm = '') {
     if (savedQueries.length === 0) {
       savedQueriesContent.innerHTML = '<div class="saved-query-item" style="cursor: default; color: #999; padding: 12px;">No saved queries</div>';
       return;
     }
 
-    savedQueriesContent.innerHTML = savedQueries.map(sq => {
+    // Filter and sort by fuzzy match score
+    let filteredQueries = savedQueries;
+    if (searchTerm) {
+      filteredQueries = savedQueries
+        .map(sq => {
+          const nameMatch = fuzzyMatch(searchTerm, sq.name);
+          const queryMatch = fuzzyMatch(searchTerm, sq.query);
+          const bestMatch = nameMatch.score > queryMatch.score ? nameMatch : queryMatch;
+          return { ...sq, ...bestMatch };
+        })
+        .filter(item => item.match)
+        .sort((a, b) => b.score - a.score);
+    }
+
+    if (filteredQueries.length === 0) {
+      savedQueriesContent.innerHTML = '<div class="saved-query-item" style="cursor: default; color: #999; padding: 12px;">No matching queries</div>';
+      return;
+    }
+
+    savedQueriesContent.innerHTML = filteredQueries.map(sq => {
       const date = new Date(sq.timestamp);
       const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
       const preview = sq.query.length > 50 ? sq.query.substring(0, 50) + '...' : sq.query;
@@ -459,10 +523,20 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     savedQueriesContent.querySelectorAll('.load-query').forEach(el => {
       el.addEventListener('click', () => {
         const id = parseInt(el.dataset.id);
-        const query = savedQueries.find(q => q.id === id);
-        if (query) {
+        const queryIndex = savedQueries.findIndex(q => q.id === id);
+        if (queryIndex !== -1) {
+          const query = savedQueries[queryIndex];
           textarea.value = query.query;
+
+          // Move to top and update timestamp
+          savedQueries.splice(queryIndex, 1);
+          query.timestamp = new Date().toISOString();
+          savedQueries.unshift(query);
+          Storage.saveSavedQueries(savedQueries);
+          renderSavedQueries(savedQueriesSearch.value);
+
           savedQueriesList.classList.remove('show');
+          savedQueriesSearch.value = '';
           onQueryChange();
         }
       });
@@ -476,7 +550,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         const id = parseInt(btn.dataset.id);
         savedQueries = savedQueries.filter(q => q.id !== id);
         Storage.saveSavedQueries(savedQueries);
-        renderSavedQueries();
+        renderSavedQueries(savedQueriesSearch.value);
       });
     });
   }
@@ -544,12 +618,17 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
       return;
     }
 
-    autocompleteList.innerHTML = autocompleteItems.map((item, index) => `
-      <div class="autocomplete-item ${index === selectedAutocompleteIndex ? 'selected' : ''}" data-index="${index}">
-        <span class="autocomplete-name">${escapeHtml(item.name)}</span>
-        <span class="autocomplete-desc">${escapeHtml(item.desc)}</span>
-      </div>
-    `).join('');
+    autocompleteList.innerHTML = autocompleteItems.map((item, index) => {
+      const inputType = item.inputType || 'any';
+      const typeInfo = INPUT_TYPE_INFO[inputType] || INPUT_TYPE_INFO['any'];
+      return `
+        <div class="autocomplete-item ${index === selectedAutocompleteIndex ? 'selected' : ''}" data-index="${index}">
+          <span class="autocomplete-name">${escapeHtml(item.name)}</span>
+          <span class="autocomplete-type" style="color: ${typeInfo.color}">${typeInfo.label}</span>
+          <span class="autocomplete-desc">${escapeHtml(item.desc)}</span>
+        </div>
+      `;
+    }).join('');
 
     // Add click listeners
     autocompleteList.querySelectorAll('.autocomplete-item').forEach(item => {
