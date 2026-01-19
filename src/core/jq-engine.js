@@ -10,7 +10,14 @@ class JqEngine {
       if (typeof window.jq === 'undefined') {
         throw new Error('jq is not loaded');
       }
-      this.instance = await window.jq.promised;
+
+      // jq-web 0.5.x: window.jq.promised
+      // jq-web 0.6.x: window.jq is a Promise itself
+      if (window.jq.promised) {
+        this.instance = await window.jq.promised;
+      } else {
+        this.instance = await window.jq;
+      }
 
       // Web Worker 생성
       const workerCode = `
