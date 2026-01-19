@@ -54,6 +54,10 @@ class JqEngine {
       const result = await this.instance.json(parsedInput, query);
       return result;
     } catch (error) {
+      // Handle empty result - jq-web throws "Unexpected end of JSON input" for empty output
+      if (error.message && error.message.includes('Unexpected end of JSON input')) {
+        return [];
+      }
       throw error;
     }
   }
