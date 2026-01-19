@@ -509,20 +509,22 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
       const preview = sq.query.length > 50 ? sq.query.substring(0, 50) + '...' : sq.query;
 
       return `
-        <div class="saved-query-item">
+        <div class="saved-query-item" data-id="${sq.id}">
           <div class="saved-query-name">
-            <span class="load-query" data-id="${sq.id}">${escapeHtml(sq.name)}</span>
+            <span>${escapeHtml(sq.name)}</span>
             <button class="delete-saved-query" data-id="${sq.id}">Delete</button>
           </div>
           <div class="saved-query-meta">${dateStr}</div>
-          <div class="saved-query-preview load-query" data-id="${sq.id}">${escapeHtml(preview)}</div>
+          <div class="saved-query-preview">${escapeHtml(preview)}</div>
         </div>
       `;
     }).join('');
 
-    savedQueriesContent.querySelectorAll('.load-query').forEach(el => {
-      el.addEventListener('click', () => {
-        const id = parseInt(el.dataset.id);
+    savedQueriesContent.querySelectorAll('.saved-query-item[data-id]').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.delete-saved-query')) return;
+
+        const id = parseFloat(el.dataset.id);
         const queryIndex = savedQueries.findIndex(q => q.id === id);
         if (queryIndex !== -1) {
           const query = savedQueries[queryIndex];
@@ -547,7 +549,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         e.stopPropagation();
         if (!confirm('Delete this saved query?')) return;
 
-        const id = parseInt(btn.dataset.id);
+        const id = parseFloat(btn.dataset.id);
         savedQueries = savedQueries.filter(q => q.id !== id);
         Storage.saveSavedQueries(savedQueries);
         renderSavedQueries(savedQueriesSearch.value);
