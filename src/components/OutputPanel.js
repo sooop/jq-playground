@@ -6,7 +6,7 @@ export function createOutputPanel() {
   panel.className = 'panel';
   panel.innerHTML = `
     <div class="panel-header">
-      <span class="panel-title">Output</span>
+      <span class="panel-title">Output <span id="lastRunTime" style="font-weight:normal;color:#999;font-size:11px;margin-left:8px;"></span></span>
       <div class="panel-actions">
         <button id="autoPlayBtn" class="auto-play-btn active" title="Toggle auto-execute (Ctrl+Shift+E)">▶</button>
         <select id="formatSelect">
@@ -29,10 +29,17 @@ export function createOutputPanel() {
   const formatSelect = panel.querySelector('#formatSelect');
   const copyBtn = panel.querySelector('#copyBtn');
   const downloadBtn = panel.querySelector('#downloadBtn');
+  const lastRunTime = panel.querySelector('#lastRunTime');
 
   let lastResultData = null;
+  let lastCsvCache = null;
   let errorTimeout = null;
   let autoPlayEnabled = true;
+
+  // Flash effect cleanup
+  output.addEventListener('animationend', () => {
+    output.classList.remove('flash');
+  });
 
   // Public methods
   const api = {
@@ -42,13 +49,25 @@ export function createOutputPanel() {
 
     showResult: (data, format) => {
       lastResultData = data;
+      lastCsvCache = null; // Invalidate cache on new data
       const isArray = Array.isArray(data);
 
       if (format === 'json') {
         output.textContent = JSON.stringify(data, null, 2);
       } else if (format === 'csv') {
         output.innerHTML = jsonToHTML(data, isArray);
+        // Pre-cache CSV conversion when in CSV view
+        lastCsvCache = jsonToCSV(data);
       }
+
+      // Flash effect
+      output.classList.remove('flash');
+      void output.offsetWidth; // reflow trigger
+      output.classList.add('flash');
+
+      // Update last run time
+      const now = new Date();
+      lastRunTime.textContent = now.toLocaleTimeString();
 
       api.hideError();
     },
@@ -79,6 +98,7 @@ export function createOutputPanel() {
     clear: () => {
       output.textContent = '';
       lastResultData = null;
+      lastCsvCache = null;
       api.hideError();
     },
 
@@ -115,7 +135,11 @@ export function createOutputPanel() {
     let text;
 
     if (format === 'csv' && lastResultData) {
-      text = jsonToCSV(lastResultData);
+      // Use cache if available
+      if (!lastCsvCache) {
+        lastCsvCache = jsonToCSV(lastResultData);
+      }
+      text = lastCsvCache;
     } else {
       text = output.textContent;
     }
@@ -137,7 +161,11 @@ export function createOutputPanel() {
       text = output.textContent;
     } else if (format === 'csv') {
       if (lastResultData) {
-        text = jsonToCSV(lastResultData);
+        // Use cache if available
+        if (!lastCsvCache) {
+          lastCsvCache = jsonToCSV(lastResultData);
+        }
+        text = lastCsvCache;
       } else {
         api.showError('데이터가 없습니다.');
         return;

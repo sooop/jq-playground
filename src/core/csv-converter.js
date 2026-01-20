@@ -47,8 +47,23 @@ export function jsonToHTML(data, isActualArray = true) {
     return '<div>No data</div>';
   }
 
+  let warningMsg = '';
+
+  // Slice first, then flatten (optimize for large datasets)
+  const totalRows = data.length;
+  let displayData = data;
+
+  if (totalRows > MAX_TABLE_ROWS) {
+    warningMsg = `<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">
+      ⚠️ 데이터가 너무 많습니다. 테이블에 첫 ${MAX_TABLE_ROWS}행만 표시됩니다. (총 ${totalRows}행)
+      <br/>전체 데이터는 <strong>Download</strong> 버튼으로 CSV 파일로 다운로드하세요.
+    </div>`;
+    displayData = data.slice(0, MAX_TABLE_ROWS);
+  }
+
+  // Only flatten the data we'll display (max 1000 rows)
   const rows = [];
-  for (const item of data) {
+  for (const item of displayData) {
     const flattened = flatten(item);
     rows.push(flattened);
   }
@@ -57,18 +72,7 @@ export function jsonToHTML(data, isActualArray = true) {
     return '<div>No data</div>';
   }
 
-  let warningMsg = '';
-
-  let displayRows = rows;
-  if (rows.length > MAX_TABLE_ROWS) {
-    warningMsg = `<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">
-      ⚠️ 데이터가 너무 많습니다. 테이블에 첫 ${MAX_TABLE_ROWS}행만 표시됩니다. (총 ${rows.length}행)
-      <br/>전체 데이터는 <strong>Download</strong> 버튼으로 CSV 파일로 다운로드하세요.
-    </div>`;
-    displayRows = rows.slice(0, MAX_TABLE_ROWS);
-  }
-
-  const keys = [...new Set(displayRows.flatMap(row => Object.keys(row)))].sort();
+  const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
 
   let html = warningMsg + '<table><thead><tr>';
   keys.forEach(key => {

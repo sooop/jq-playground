@@ -1,5 +1,6 @@
 import { Storage } from '../utils/storage.js';
 import { filterFunctions, INPUT_TYPE_INFO } from '../core/jq-functions.js';
+import { handleTabKey } from '../utils/keyboard.js';
 
 const MAX_HISTORY = 100;
 
@@ -109,6 +110,56 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
   let savedQueries = Storage.getSavedQueries();
   let autocompleteItems = [];
   let selectedAutocompleteIndex = -1;
+
+  // Event delegation for history items (prevents memory leaks)
+  historyContent.addEventListener('click', (e) => {
+    const item = e.target.closest('.history-item');
+    if (!item) return;
+
+    const query = item.dataset.query;
+    if (query) {
+      textarea.value = query;
+      historyList.classList.remove('show');
+      historySearch.value = '';
+      onQueryChange();
+    }
+  });
+
+  // Event delegation for saved queries (prevents memory leaks)
+  savedQueriesContent.addEventListener('click', (e) => {
+    const deleteBtn = e.target.closest('.delete-saved-query');
+    if (deleteBtn) {
+      e.stopPropagation();
+      if (!confirm('Delete this saved query?')) return;
+
+      const id = parseFloat(deleteBtn.dataset.id);
+      savedQueries = savedQueries.filter(q => q.id !== id);
+      Storage.saveSavedQueries(savedQueries);
+      renderSavedQueries(savedQueriesSearch.value);
+      return;
+    }
+
+    const item = e.target.closest('.saved-query-item[data-id]');
+    if (item) {
+      const id = parseFloat(item.dataset.id);
+      const queryIndex = savedQueries.findIndex(q => q.id === id);
+      if (queryIndex !== -1) {
+        const query = savedQueries[queryIndex];
+        textarea.value = query.query;
+
+        // Move to top and update timestamp
+        savedQueries.splice(queryIndex, 1);
+        query.timestamp = new Date().toISOString();
+        savedQueries.unshift(query);
+        Storage.saveSavedQueries(savedQueries);
+        renderSavedQueries(savedQueriesSearch.value);
+
+        savedQueriesList.classList.remove('show');
+        savedQueriesSearch.value = '';
+        onQueryChange();
+      }
+    }
+  });
 
   // Position dropdown relative to button
   function positionDropdown(button, dropdown) {
@@ -464,18 +515,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     historyContent.innerHTML = filteredHistory.map(q =>
       `<div class="history-item" data-query="${escapeHtml(q)}">${escapeHtml(q)}</div>`
     ).join('');
-
-    historyContent.querySelectorAll('.history-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const query = item.dataset.query;
-        if (query) {
-          textarea.value = query;
-          historyList.classList.remove('show');
-          historySearch.value = '';
-          onQueryChange();
-        }
-      });
-    });
+    // Event delegation handles clicks (see line 115)
   }
 
   function renderSavedQueries(searchTerm = '') {
@@ -519,42 +559,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         </div>
       `;
     }).join('');
-
-    savedQueriesContent.querySelectorAll('.saved-query-item[data-id]').forEach(el => {
-      el.addEventListener('click', (e) => {
-        if (e.target.closest('.delete-saved-query')) return;
-
-        const id = parseFloat(el.dataset.id);
-        const queryIndex = savedQueries.findIndex(q => q.id === id);
-        if (queryIndex !== -1) {
-          const query = savedQueries[queryIndex];
-          textarea.value = query.query;
-
-          // Move to top and update timestamp
-          savedQueries.splice(queryIndex, 1);
-          query.timestamp = new Date().toISOString();
-          savedQueries.unshift(query);
-          Storage.saveSavedQueries(savedQueries);
-          renderSavedQueries(savedQueriesSearch.value);
-
-          savedQueriesList.classList.remove('show');
-          savedQueriesSearch.value = '';
-          onQueryChange();
-        }
-      });
-    });
-
-    savedQueriesContent.querySelectorAll('.delete-saved-query').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (!confirm('Delete this saved query?')) return;
-
-        const id = parseFloat(btn.dataset.id);
-        savedQueries = savedQueries.filter(q => q.id !== id);
-        Storage.saveSavedQueries(savedQueries);
-        renderSavedQueries(savedQueriesSearch.value);
-      });
-    });
+    // Event delegation handles clicks (see line 129)
   }
 
   // Autocomplete functions
@@ -679,69 +684,4 @@ function escapeHtml(text) {
     "'": '&#039;'
   };
   return text.replace(/[&<>"']/g, m => map[m]);
-}
-
-function handleTabKey(e) {
-  if (e.key !== 'Tab') return;
-
-  e.preventDefault();
-  const TAB_SIZE = 4;
-  const INDENT = ' '.repeat(TAB_SIZE);
-  const textarea = e.target;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const value = textarea.value;
-
-  if (start === end) {
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-    const beforeCursor = value.substring(lineStart, start);
-
-    if (e.shiftKey && /^[ \t]*$/.test(beforeCursor)) {
-      const match = beforeCursor.match(/^(?:\t|( {1,4}))/);
-      if (match) {
-        const removed = match[0].length;
-        textarea.value = value.substring(0, lineStart) + value.substring(lineStart + removed);
-        textarea.selectionStart = textarea.selectionEnd = start - removed;
-      }
-    } else if (!e.shiftKey) {
-      textarea.value = value.substring(0, start) + INDENT + value.substring(end);
-      textarea.selectionStart = textarea.selectionEnd = start + TAB_SIZE;
-    }
-  } else {
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-    const lineEnd = value.indexOf('\n', end);
-    const selectedLines = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
-
-    let newLines;
-    let totalOffset = 0;
-
-    if (e.shiftKey) {
-      const lines = selectedLines.split('\n');
-      newLines = lines.map((line) => {
-        const match = line.match(/^( {1,4})/);
-        if (match) {
-          const removed = match[1].length;
-          totalOffset -= removed;
-          return line.substring(removed);
-        }
-        return line;
-      }).join('\n');
-    } else {
-      const lines = selectedLines.split('\n');
-      newLines = lines.map(line => INDENT + line).join('\n');
-      totalOffset = newLines.length - selectedLines.length;
-    }
-
-    textarea.value = value.substring(0, lineStart) + newLines + value.substring(lineEnd === -1 ? value.length : lineEnd);
-
-    if (e.shiftKey) {
-      const firstLineRemoved = selectedLines.split('\n')[0].match(/^( {1,4})/) ?
-                              selectedLines.split('\n')[0].match(/^( {1,4})/)[1].length : 0;
-      textarea.selectionStart = start - (lineStart === start ? firstLineRemoved : 0);
-      textarea.selectionEnd = end + totalOffset + (lineStart === start ? firstLineRemoved : 0);
-    } else {
-      textarea.selectionStart = start + (lineStart === start ? TAB_SIZE : 0);
-      textarea.selectionEnd = end + totalOffset;
-    }
-  }
 }

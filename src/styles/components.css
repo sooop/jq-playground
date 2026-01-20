@@ -55,6 +55,16 @@ textarea::placeholder {
     overflow: auto;
 }
 
+@keyframes flash-highlight {
+    0% { background-color: #fff; }
+    30% { background-color: rgba(37, 99, 235, 0.08); }
+    100% { background-color: #fff; }
+}
+
+.output-content.flash {
+    animation: flash-highlight 0.4s ease-out;
+}
+
 /* Drag Overlay */
 .drag-overlay {
     position: absolute;

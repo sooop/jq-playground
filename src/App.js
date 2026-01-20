@@ -5,6 +5,7 @@ import { createOutputPanel } from './components/OutputPanel.js';
 import { createSaveQueryModal, createHelpModal } from './components/Modal.js';
 import { createCheatsheet } from './components/Cheatsheet.js';
 import { jqEngine } from './core/jq-engine.js';
+import { Storage } from './utils/storage.js';
 
 export class App {
   constructor() {
@@ -57,9 +58,10 @@ export class App {
     this.helpModal = createHelpModal();
 
     this.cheatsheet = createCheatsheet((query) => {
-      const current = this.queryPanel.querySelector('#query').value;
-      this.queryPanel.querySelector('#query').value = current.trim() === '' ? query : current + ' | ' + query;
-      this.queryPanel.querySelector('#query').focus();
+      const queryTextarea = this.queryPanel.querySelector('#query');
+      const current = queryTextarea.value;
+      queryTextarea.value = current.trim() === '' ? query : current + ' | ' + query;
+      queryTextarea.focus();
       this.executeQuery();
     });
 
@@ -114,6 +116,11 @@ export class App {
         this.outputPanel.api.toggleAutoPlay();
         // Callback will be triggered automatically
       }
+    });
+
+    // Flush storage on page unload
+    window.addEventListener('beforeunload', () => {
+      Storage.flushAll();
     });
 
     // Initial execution
