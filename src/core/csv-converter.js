@@ -80,7 +80,7 @@ export function jsonToHTML(data, isActualArray = true) {
   });
   html += '</tr></thead><tbody>';
 
-  displayRows.forEach(row => {
+  rows.forEach(row => {
     html += '<tr>';
     keys.forEach(key => {
       const value = row[key] !== undefined ? row[key] : '';
