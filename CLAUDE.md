@@ -84,6 +84,11 @@ Keys: `jq-history`, `jq-saved-queries`
 - History dropdown (max 20 items, FIFO when full)
 - Saved queries (persistent, user-named)
 - Tab key support in textareas (implemented in each panel component)
+- Autocomplete for jq functions (`jq-functions.js` provides function list with input type hints)
+
+### Cheatsheet
+- Collapsible panel with common jq examples
+- Click on example to append to query (with `|` pipe if query exists)
 
 ### Panel Resizing
 Mouse-drag resizers with 20-80% bounds, implemented via grid template manipulation.
