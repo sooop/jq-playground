@@ -5,6 +5,7 @@ import { createOutputPanel } from './components/OutputPanel.js';
 import { createSaveQueryModal, createHelpModal } from './components/Modal.js';
 import { createCheatsheet } from './components/Cheatsheet.js';
 import { jqEngine } from './core/jq-engine.js';
+import { extractKeys } from './core/jq-functions.js';
 import { Storage } from './utils/storage.js';
 
 export class App {
@@ -40,7 +41,8 @@ export class App {
     this.queryPanel = createQueryPanel(
       () => this.executeQuery(),
       (query) => this.modal.api.show(query),
-      () => this.manualExecute()
+      () => this.manualExecute(),
+      () => this.getInputKeys()
     );
     this.outputPanel = createOutputPanel();
 
@@ -157,9 +159,9 @@ export class App {
       this.outputPanel.api.showLoading();
 
       try {
-        const result = await jqEngine.execute(input, query);
+        const { result, executionTime } = await jqEngine.execute(input, query);
         this.queryPanel.api.addToHistory(query);
-        this.outputPanel.api.showResult(result, format);
+        this.outputPanel.api.showResult(result, format, executionTime);
       } catch (error) {
         this.outputPanel.api.showError(error.message);
       }
@@ -206,6 +208,17 @@ export class App {
       isResizingV = false;
       document.body.style.cursor = '';
     });
+  }
+
+  getInputKeys() {
+    try {
+      const input = this.inputPanel.querySelector('#input').value.trim();
+      if (!input) return [];
+      const data = JSON.parse(input);
+      return extractKeys(data);
+    } catch (e) {
+      return [];
+    }
   }
 
   loadSample() {

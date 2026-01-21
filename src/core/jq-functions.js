@@ -210,7 +210,34 @@ export const INPUT_TYPE_INFO = {
   'item': { label: 'item', color: '#ea580c' },
   'array|object': { label: 'array|obj', color: '#6366f1' },
   'array|string': { label: 'arr|str', color: '#0891b2' },
+  'field': { label: 'field', color: '#f59e0b' },
 };
+
+// Extract keys from JSON data for autocomplete
+export function extractKeys(data, maxDepth = 3) {
+  const keys = new Set();
+
+  function traverse(obj, path, depth) {
+    if (depth > maxDepth || obj === null || obj === undefined) return;
+
+    if (Array.isArray(obj)) {
+      // For arrays, traverse first few items to find common structure
+      const sampleSize = Math.min(obj.length, 3);
+      for (let i = 0; i < sampleSize; i++) {
+        traverse(obj[i], path + '[]', depth);
+      }
+    } else if (typeof obj === 'object') {
+      for (const key of Object.keys(obj)) {
+        const newPath = path ? `${path}.${key}` : key;
+        keys.add(newPath);
+        traverse(obj[key], newPath, depth + 1);
+      }
+    }
+  }
+
+  traverse(data, '', 0);
+  return Array.from(keys);
+}
 
 export function filterFunctions(prefix) {
   if (!prefix) return [];

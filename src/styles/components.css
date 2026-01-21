@@ -1,8 +1,8 @@
 /* Header */
 .header {
-    background: #fff;
+    background: var(--bg-primary);
     padding: 16px 20px;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border-primary);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -29,8 +29,8 @@ textarea, .output-content {
     font-size: 13px;
     line-height: 1.6;
     resize: none;
-    background: #fff;
-    color: #333;
+    background: var(--bg-primary);
+    color: var(--text-primary);
     overflow: auto;
     box-sizing: border-box;
 }
@@ -42,11 +42,11 @@ textarea, .output-content {
 
 textarea:focus {
     outline: none;
-    background: #fefefe;
+    background: var(--bg-primary);
 }
 
 textarea::placeholder {
-    color: #aaa;
+    color: var(--text-muted);
 }
 
 .output-content {
@@ -56,9 +56,9 @@ textarea::placeholder {
 }
 
 @keyframes flash-highlight {
-    0% { background-color: #fff; }
-    30% { background-color: rgba(37, 99, 235, 0.08); }
-    100% { background-color: #fff; }
+    0% { background-color: var(--bg-primary); }
+    30% { background-color: var(--accent-bg); }
+    100% { background-color: var(--bg-primary); }
 }
 
 .output-content.flash {
@@ -69,13 +69,14 @@ textarea::placeholder {
 .drag-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--bg-primary);
+    opacity: 0.95;
     display: none;
     align-items: center;
     justify-content: center;
     font-size: 14px;
-    color: #666;
-    border: 2px dashed #ccc;
+    color: var(--text-secondary);
+    border: 2px dashed var(--border-primary);
     margin: 16px;
 }
 
@@ -86,9 +87,9 @@ textarea::placeholder {
 /* Buttons */
 button {
     padding: 6px 12px;
-    border: 1px solid #ddd;
-    background: #fff;
-    color: #333;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-size: 12px;
     cursor: pointer;
     font-family: inherit;
@@ -96,22 +97,22 @@ button {
 }
 
 button:hover {
-    background: #f5f5f5;
-    border-color: #ccc;
+    background: var(--bg-secondary);
+    border-color: var(--border-primary);
 }
 
 button:active {
-    background: #eee;
+    background: var(--bg-tertiary);
 }
 
 button.primary {
-    background: #333;
-    color: #fff;
-    border-color: #333;
+    background: var(--text-primary);
+    color: var(--bg-primary);
+    border-color: var(--text-primary);
 }
 
 button.primary:hover {
-    background: #444;
+    background: var(--text-secondary);
 }
 
 button.auto-play-btn {
@@ -121,21 +122,22 @@ button.auto-play-btn {
 }
 
 button.auto-play-btn.active {
-    background: #e8f5e9;
-    color: #2e7d32;
-    border-color: #a5d6a7;
+    background: var(--success-bg);
+    color: var(--success-color);
+    border-color: var(--success-color);
 }
 
 button.auto-play-btn.active:hover {
-    background: #c8e6c9;
-    border-color: #81c784;
+    background: var(--success-bg);
+    border-color: var(--success-color);
 }
 
 /* Select */
 select {
     padding: 6px 12px;
-    border: 1px solid #ddd;
-    background: #fff;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-size: 12px;
     font-family: inherit;
     cursor: pointer;
@@ -148,8 +150,8 @@ select {
 
 /* Cheatsheet */
 .cheatsheet {
-    background: #fafafa;
-    border-bottom: 1px solid #e5e5e5;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-secondary);
     display: none;
     flex-direction: column;
 }
@@ -164,8 +166,8 @@ select {
     display: flex;
     gap: 4px;
     padding: 8px 12px 0;
-    background: #fafafa;
-    border-bottom: 1px solid #e5e5e5;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-secondary);
     overflow-x: auto;
     flex-shrink: 0;
 }
@@ -178,19 +180,19 @@ select {
     cursor: pointer;
     font-size: 12px;
     font-weight: 500;
-    color: #666;
+    color: var(--text-secondary);
     white-space: nowrap;
     transition: all 0.2s;
 }
 
 .cheatsheet-tab:hover {
-    color: #333;
-    background: rgba(0, 0, 0, 0.03);
+    color: var(--text-primary);
+    background: var(--bg-hover);
 }
 
 .cheatsheet-tab.active {
-    color: #2563eb;
-    border-bottom-color: #2563eb;
+    color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
 }
 
 .cheatsheet-content {
@@ -214,8 +216,8 @@ select {
 .cheatsheet-item {
     cursor: pointer;
     padding: 8px 10px;
-    background: #fff;
-    border: 1px solid #e5e5e5;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-secondary);
     border-radius: 4px;
     transition: all 0.15s;
     display: flex;
@@ -230,13 +232,13 @@ select {
 }
 
 .cheatsheet-item:hover {
-    border-color: #2563eb;
-    background: #f0f7ff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    border-color: var(--accent-primary);
+    background: var(--bg-hover);
+    box-shadow: 0 1px 3px var(--shadow-color);
 }
 
 .cheatsheet-item code {
-    color: #2563eb;
+    color: var(--accent-primary);
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
     font-size: 11px;
     font-weight: 500;
@@ -252,18 +254,115 @@ select {
 }
 
 .cheatsheet-item .cheatsheet-desc {
-    color: #666;
+    color: var(--text-secondary);
     font-size: 11px;
     line-height: 1.4;
 }
 
 /* Error Banner */
+/* Stats Bar */
+.stats-bar {
+    display: none;
+    gap: 8px;
+    padding: 6px 16px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-secondary);
+    font-size: 11px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    padding: 2px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 3px;
+    color: var(--text-secondary);
+}
+
+.stat-time {
+    color: var(--success-color);
+    border-color: var(--success-color);
+    background: var(--success-bg);
+}
+
+.stat-type {
+    color: var(--accent-primary);
+    font-weight: 500;
+}
+
+/* Search Bar */
+.search-bar {
+    display: none;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-secondary);
+    align-items: center;
+}
+
+.search-bar.show {
+    display: flex;
+}
+
+.search-bar input {
+    flex: 1;
+    max-width: 300px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-family: inherit;
+    border-radius: 3px;
+}
+
+.search-bar input:focus {
+    outline: none;
+    border-color: var(--accent-primary);
+}
+
+.search-info {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    min-width: 70px;
+}
+
+.search-bar button {
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: 28px;
+}
+
+/* Search Highlights */
+.search-highlight {
+    background: #fef08a;
+    color: #000;
+    border-radius: 2px;
+}
+
+.search-highlight.current {
+    background: #fb923c;
+    color: #000;
+}
+
+:root.dark .search-highlight {
+    background: #854d0e;
+    color: #fef08a;
+}
+
+:root.dark .search-highlight.current {
+    background: #c2410c;
+    color: #fed7aa;
+}
+
+/* Error Banner */
 .error-banner {
-    background: #fff3f3;
-    border-left: 3px solid #d33;
+    background: var(--error-bg);
+    border-left: 3px solid var(--error-color);
     padding: 12px 16px;
     font-size: 12px;
-    color: #d33;
+    color: var(--error-color);
     display: none;
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
 }
@@ -280,13 +379,13 @@ select {
 
 .history-list {
     position: fixed;
-    background: #fff;
-    border: 1px solid #ddd;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
     min-width: 350px;
     max-width: 500px;
     display: none;
     z-index: 10000;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    box-shadow: 0 4px 16px var(--shadow-heavy);
     padding: 0;
 }
 
@@ -297,8 +396,8 @@ select {
 
 .history-header {
     padding: 8px;
-    background: #fafafa;
-    border-bottom: 1px solid #e5e5e5;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-secondary);
     display: flex;
     gap: 8px;
     align-items: center;
@@ -308,7 +407,9 @@ select {
 .history-search {
     flex: 1;
     padding: 6px 10px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-size: 12px;
     font-family: inherit;
     border-radius: 3px;
@@ -316,7 +417,7 @@ select {
 
 .history-search:focus {
     outline: none;
-    border-color: #999;
+    border-color: var(--text-tertiary);
 }
 
 .history-actions {
@@ -338,13 +439,13 @@ select {
     font-size: 12px;
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
     cursor: pointer;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-light);
     transition: background 0.15s;
     word-break: break-all;
 }
 
 .history-item:hover {
-    background: #f5f5f5;
+    background: var(--bg-secondary);
 }
 
 .history-item:last-child {
@@ -360,8 +461,8 @@ select {
 
 .saved-queries-header {
     padding: 8px;
-    background: #fafafa;
-    border-bottom: 1px solid #e5e5e5;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-secondary);
     display: flex;
     gap: 8px;
     align-items: center;
@@ -390,12 +491,12 @@ select {
     padding: 10px 12px;
     font-size: 12px;
     cursor: pointer;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-light);
     transition: background 0.15s;
 }
 
 .saved-query-item:hover {
-    background: #f5f5f5;
+    background: var(--bg-secondary);
 }
 
 .saved-query-item:last-child {
@@ -416,13 +517,13 @@ select {
 
 .saved-query-meta {
     font-size: 11px;
-    color: #999;
+    color: var(--text-tertiary);
     margin-bottom: 4px;
 }
 
 .saved-query-preview {
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-    color: #666;
+    color: var(--text-secondary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -433,19 +534,19 @@ select {
     font-size: 11px;
     border: none;
     background: transparent;
-    color: #d33;
+    color: var(--error-color);
     cursor: pointer;
 }
 
 .delete-saved-query:hover {
-    background: #fff3f3;
+    background: var(--error-bg);
 }
 
 /* Modal */
 .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--overlay-bg);
     display: none;
     align-items: center;
     justify-content: center;
@@ -457,12 +558,12 @@ select {
 }
 
 .modal {
-    background: #fff;
-    border: 1px solid #ddd;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
     padding: 24px;
     min-width: 400px;
     max-width: 90vw;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 16px var(--shadow-heavy);
 }
 
 .modal-title {
@@ -478,7 +579,7 @@ select {
 .modal-label {
     display: block;
     font-size: 12px;
-    color: #666;
+    color: var(--text-secondary);
     margin-bottom: 6px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -487,20 +588,24 @@ select {
 .modal-input {
     width: 100%;
     padding: 8px 12px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-size: 13px;
     font-family: inherit;
 }
 
 .modal-input:focus {
     outline: none;
-    border-color: #999;
+    border-color: var(--text-tertiary);
 }
 
 .modal-textarea {
     width: 100%;
     padding: 8px 12px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-size: 13px;
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
     resize: vertical;
@@ -509,7 +614,7 @@ select {
 
 .modal-textarea:focus {
     outline: none;
-    border-color: #999;
+    border-color: var(--text-tertiary);
 }
 
 .modal-actions {
@@ -529,21 +634,21 @@ table {
 th, td {
     padding: 8px 12px;
     text-align: left;
-    border: 1px solid #e5e5e5;
+    border: 1px solid var(--border-secondary);
 }
 
 th {
-    background: #fafafa;
+    background: var(--bg-tertiary);
     font-weight: 500;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 tr:hover {
-    background: #fafafa;
+    background: var(--bg-tertiary);
 }
 
 .loading {
-    color: #999;
+    color: var(--text-tertiary);
     font-style: italic;
 }
 
@@ -568,8 +673,8 @@ tr:hover {
     font-size: 14px;
     font-weight: 600;
     margin-bottom: 12px;
-    color: #333;
-    border-bottom: 1px solid #e5e5e5;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--border-secondary);
     padding-bottom: 6px;
 }
 
@@ -579,7 +684,7 @@ tr:hover {
     align-items: center;
     padding: 10px 12px;
     margin-bottom: 6px;
-    background: #fafafa;
+    background: var(--bg-tertiary);
     border-radius: 4px;
     gap: 16px;
 }
@@ -592,18 +697,18 @@ tr:hover {
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
     font-size: 12px;
     font-weight: 600;
-    background: #fff;
+    background: var(--bg-primary);
     padding: 4px 8px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-primary);
     border-radius: 3px;
-    color: #333;
+    color: var(--text-primary);
     white-space: nowrap;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 2px var(--shadow-color);
 }
 
 .shortcut-desc {
     font-size: 12px;
-    color: #666;
+    color: var(--text-secondary);
     flex: 1;
     text-align: right;
 }
@@ -619,9 +724,9 @@ tr:hover {
 .autocomplete-list {
     position: relative;
     width: 100%;
-    background: #fff;
-    border-top: 1px solid #ddd;
-    box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-primary);
+    box-shadow: 0 -2px 4px var(--shadow-color);
     display: none;
     z-index: 100;
     max-height: 200px;
@@ -637,7 +742,7 @@ tr:hover {
     padding: 8px 12px;
     font-size: 12px;
     cursor: pointer;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-light);
     transition: background 0.15s;
     display: flex;
     align-items: center;
@@ -646,7 +751,7 @@ tr:hover {
 
 .autocomplete-item:hover,
 .autocomplete-item.selected {
-    background: #f0f7ff;
+    background: var(--bg-hover);
 }
 
 .autocomplete-item:last-child {
@@ -655,7 +760,7 @@ tr:hover {
 
 .autocomplete-name {
     font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
-    color: #2563eb;
+    color: var(--accent-primary);
     font-weight: 500;
     min-width: 80px;
 }
@@ -664,18 +769,34 @@ tr:hover {
     font-size: 10px;
     font-weight: 600;
     padding: 2px 6px;
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--bg-tertiary);
     border-radius: 3px;
     text-transform: lowercase;
     white-space: nowrap;
 }
 
 .autocomplete-desc {
-    color: #666;
+    color: var(--text-secondary);
     font-size: 11px;
     flex: 1;
     text-align: right;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* Dark mode toggle button */
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    font-size: 16px;
+    border-radius: 4px;
+}
+
+.theme-toggle:hover {
+    background: var(--bg-hover);
 }

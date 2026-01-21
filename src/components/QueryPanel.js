@@ -44,7 +44,7 @@ function fuzzyMatch(pattern, text) {
   return { match: false, score: 0 };
 }
 
-export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
+export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getInputKeys = null) {
   const panel = document.createElement('div');
   panel.className = 'panel';
 
@@ -193,13 +193,23 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
         return;
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        selectedAutocompleteIndex = Math.max(selectedAutocompleteIndex - 1, 0);
+        selectedAutocompleteIndex = Math.max(selectedAutocompleteIndex - 1, -1);
         renderAutocomplete();
         return;
-      } else if (e.key === 'Enter' && selectedAutocompleteIndex >= 0) {
+      } else if (e.key === 'Tab' && autocompleteItems.length > 0) {
+        // Tab: Apply first item or selected item
         e.preventDefault();
-        applyAutocomplete(autocompleteItems[selectedAutocompleteIndex]);
+        const indexToApply = selectedAutocompleteIndex >= 0 ? selectedAutocompleteIndex : 0;
+        applyAutocomplete(autocompleteItems[indexToApply]);
         return;
+      } else if (e.key === 'Enter' && selectedAutocompleteIndex >= 0) {
+        // Enter: Only apply if explicitly selected via arrow keys AND cursor is at word end
+        const { isCursorAtWordEnd } = getCurrentWord();
+        if (isCursorAtWordEnd) {
+          e.preventDefault();
+          applyAutocomplete(autocompleteItems[selectedAutocompleteIndex]);
+          return;
+        }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         hideAutocomplete();
@@ -569,14 +579,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
 
     // Find the start of the current word
     let start = cursor - 1;
-    while (start >= 0 && /[a-zA-Z0-9_]/.test(text[start])) {
+    while (start >= 0 && /[a-zA-Z0-9_@]/.test(text[start])) {
       start--;
     }
     start++;
 
     // Find the end of the current word
     let end = cursor;
-    while (end < text.length && /[a-zA-Z0-9_]/.test(text[end])) {
+    while (end < text.length && /[a-zA-Z0-9_@]/.test(text[end])) {
       end++;
     }
 
@@ -584,19 +594,50 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
     const charBeforeWord = start > 0 ? text[start - 1] : '';
     const isFieldAccess = charBeforeWord === '.';
 
+    // Check if cursor is at the end of the word
+    const isCursorAtWordEnd = cursor === end;
+
     return {
       word: text.substring(start, end),
       start: start,
       end: end,
-      isFieldAccess: isFieldAccess
+      isFieldAccess: isFieldAccess,
+      isCursorAtWordEnd: isCursorAtWordEnd
     };
   }
 
   function updateAutocomplete() {
     const { word, isFieldAccess } = getCurrentWord();
 
-    // Don't show autocomplete for field access (e.g., .foo, .bar)
-    if (isFieldAccess) {
+    // Field access autocomplete (e.g., .foo, .bar)
+    if (isFieldAccess && getInputKeys) {
+      const inputKeys = getInputKeys();
+      if (inputKeys && inputKeys.length > 0) {
+        const lower = word.toLowerCase();
+        const matches = inputKeys
+          .filter(key => key.toLowerCase().startsWith(lower))
+          .slice(0, 10)
+          .map(key => ({
+            name: key,
+            desc: 'Input field',
+            inputType: 'field'
+          }));
+
+        if (matches.length > 0) {
+          // Hide if exact match
+          const exactMatch = matches.find(m => m.name.toLowerCase() === word.toLowerCase());
+          if (exactMatch && matches.length === 1) {
+            hideAutocomplete();
+            return;
+          }
+
+          autocompleteItems = matches;
+          selectedAutocompleteIndex = -1;
+          renderAutocomplete();
+          autocompleteList.classList.add('show');
+          return;
+        }
+      }
       hideAutocomplete();
       return;
     }
@@ -613,8 +654,16 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute) {
       return;
     }
 
+    // Hide if user has typed past a complete exact match
+    // e.g., typing "selectx" when "select" was a match
+    const exactMatch = matches.find(m => m.name.toLowerCase() === word.toLowerCase());
+    if (exactMatch && matches.length === 1) {
+      hideAutocomplete();
+      return;
+    }
+
     autocompleteItems = matches;
-    selectedAutocompleteIndex = 0;
+    selectedAutocompleteIndex = -1; // Reset to -1, user must explicitly select
     renderAutocomplete();
     autocompleteList.classList.add('show');
   }

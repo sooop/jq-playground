@@ -29,14 +29,18 @@ class JqEngine {
       throw new Error('jq engine not initialized');
     }
 
+    const startTime = performance.now();
+
     try {
       const parsedInput = JSON.parse(input);
       const result = await this.instance.json(parsedInput, query);
-      return result;
+      const executionTime = performance.now() - startTime;
+      return { result, executionTime };
     } catch (error) {
+      const executionTime = performance.now() - startTime;
       // Handle empty result - jq-web throws "Unexpected end of JSON input" for empty output
       if (error.message && error.message.includes('Unexpected end of JSON input')) {
-        return [];
+        return { result: [], executionTime };
       }
       throw error;
     }

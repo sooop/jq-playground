@@ -6,7 +6,7 @@ export function createOutputPanel() {
   panel.className = 'panel';
   panel.innerHTML = `
     <div class="panel-header">
-      <span class="panel-title">Output <span id="lastRunTime" style="font-weight:normal;color:#999;font-size:11px;margin-left:8px;"></span></span>
+      <span class="panel-title">Output <span id="lastRunTime" style="font-weight:normal;color:var(--text-tertiary);font-size:11px;margin-left:8px;"></span></span>
       <div class="panel-actions">
         <button id="autoPlayBtn" class="auto-play-btn active" title="Toggle auto-execute (Ctrl+Shift+E)">▶</button>
         <select id="formatSelect">
@@ -16,6 +16,14 @@ export function createOutputPanel() {
         <button id="copyBtn">Copy</button>
         <button id="downloadBtn">Download</button>
       </div>
+    </div>
+    <div class="stats-bar" id="statsBar"></div>
+    <div class="search-bar" id="searchBar">
+      <input type="text" id="searchInput" placeholder="Search..." />
+      <span class="search-info" id="searchInfo"></span>
+      <button id="searchPrevBtn" title="Previous (Shift+Enter)">↑</button>
+      <button id="searchNextBtn" title="Next (Enter)">↓</button>
+      <button id="searchCloseBtn" title="Close (Escape)">×</button>
     </div>
     <div class="error-banner" id="errorBanner"></div>
     <div class="panel-content">
@@ -30,16 +38,212 @@ export function createOutputPanel() {
   const copyBtn = panel.querySelector('#copyBtn');
   const downloadBtn = panel.querySelector('#downloadBtn');
   const lastRunTime = panel.querySelector('#lastRunTime');
+  const statsBar = panel.querySelector('#statsBar');
+  const searchBar = panel.querySelector('#searchBar');
+  const searchInput = panel.querySelector('#searchInput');
+  const searchInfo = panel.querySelector('#searchInfo');
+  const searchPrevBtn = panel.querySelector('#searchPrevBtn');
+  const searchNextBtn = panel.querySelector('#searchNextBtn');
+  const searchCloseBtn = panel.querySelector('#searchCloseBtn');
 
   let lastResultData = null;
   let lastCsvCache = null;
   let errorTimeout = null;
   let autoPlayEnabled = true;
+  let searchMatches = [];
+  let currentMatchIndex = -1;
+  let originalOutputHTML = '';
+
+  // Helper function to generate stats
+  function generateStats(data, executionTime) {
+    const stats = [];
+
+    // Execution time
+    if (executionTime !== undefined) {
+      const timeStr = executionTime < 1 ? '<1ms' : `${executionTime.toFixed(1)}ms`;
+      stats.push(`<span class="stat-item stat-time">${timeStr}</span>`);
+    }
+
+    // Type
+    const type = Array.isArray(data) ? 'array' : typeof data;
+    stats.push(`<span class="stat-item stat-type">${type}</span>`);
+
+    // Additional info based on type
+    if (Array.isArray(data)) {
+      stats.push(`<span class="stat-item">${data.length} items</span>`);
+    } else if (data && typeof data === 'object') {
+      const keys = Object.keys(data);
+      stats.push(`<span class="stat-item">${keys.length} keys</span>`);
+    } else if (typeof data === 'string') {
+      stats.push(`<span class="stat-item">${data.length} chars</span>`);
+    } else if (typeof data === 'number') {
+      stats.push(`<span class="stat-item">${data}</span>`);
+    }
+
+    return stats.join('');
+  }
 
   // Flash effect cleanup
   output.addEventListener('animationend', () => {
     output.classList.remove('flash');
   });
+
+  // Search functions
+  function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function toggleSearch(show) {
+    if (show) {
+      searchBar.classList.add('show');
+      searchInput.focus();
+      searchInput.select();
+    } else {
+      searchBar.classList.remove('show');
+      clearSearch();
+    }
+  }
+
+  function clearSearch() {
+    searchMatches = [];
+    currentMatchIndex = -1;
+    searchInfo.textContent = '';
+    // Restore original content
+    if (originalOutputHTML && formatSelect.value === 'json') {
+      output.innerHTML = '';
+      output.textContent = originalOutputHTML;
+    }
+  }
+
+  function performSearch() {
+    const query = searchInput.value;
+    if (!query || !lastResultData) {
+      clearSearch();
+      return;
+    }
+
+    // Store original text content for JSON mode
+    if (formatSelect.value === 'json') {
+      if (!originalOutputHTML) {
+        originalOutputHTML = output.textContent;
+      }
+
+      const text = originalOutputHTML;
+      const regex = new RegExp(escapeRegExp(query), 'gi');
+      searchMatches = [];
+      let match;
+
+      while ((match = regex.exec(text)) !== null) {
+        searchMatches.push({
+          start: match.index,
+          end: match.index + match[0].length,
+          text: match[0]
+        });
+      }
+
+      if (searchMatches.length > 0) {
+        currentMatchIndex = 0;
+        highlightMatches();
+        updateSearchInfo();
+      } else {
+        searchInfo.textContent = 'No matches';
+        output.innerHTML = '';
+        output.textContent = originalOutputHTML;
+      }
+    } else {
+      // For CSV/table view, simple text search
+      searchInfo.textContent = 'Search works in JSON view';
+    }
+  }
+
+  function highlightMatches() {
+    if (searchMatches.length === 0 || formatSelect.value !== 'json') return;
+
+    const text = originalOutputHTML;
+    let result = '';
+    let lastIndex = 0;
+
+    searchMatches.forEach((match, index) => {
+      // Add text before match
+      result += escapeHtmlText(text.substring(lastIndex, match.start));
+      // Add highlighted match
+      const highlightClass = index === currentMatchIndex ? 'search-highlight current' : 'search-highlight';
+      result += `<span class="${highlightClass}">${escapeHtmlText(match.text)}</span>`;
+      lastIndex = match.end;
+    });
+
+    // Add remaining text
+    result += escapeHtmlText(text.substring(lastIndex));
+    output.innerHTML = result;
+
+    // Scroll current match into view
+    const currentHighlight = output.querySelector('.search-highlight.current');
+    if (currentHighlight) {
+      currentHighlight.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }
+
+  function escapeHtmlText(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function updateSearchInfo() {
+    if (searchMatches.length > 0) {
+      searchInfo.textContent = `${currentMatchIndex + 1} of ${searchMatches.length}`;
+    } else {
+      searchInfo.textContent = 'No matches';
+    }
+  }
+
+  function goToNextMatch() {
+    if (searchMatches.length === 0) return;
+    currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
+    highlightMatches();
+    updateSearchInfo();
+  }
+
+  function goToPrevMatch() {
+    if (searchMatches.length === 0) return;
+    currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+    highlightMatches();
+    updateSearchInfo();
+  }
+
+  // Search event listeners
+  searchInput.addEventListener('input', () => {
+    performSearch();
+  });
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        goToPrevMatch();
+      } else {
+        goToNextMatch();
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      toggleSearch(false);
+    }
+  });
+
+  searchPrevBtn.addEventListener('click', goToPrevMatch);
+  searchNextBtn.addEventListener('click', goToNextMatch);
+  searchCloseBtn.addEventListener('click', () => toggleSearch(false));
+
+  // Ctrl+F to open search
+  panel.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === 'f') {
+      e.preventDefault();
+      toggleSearch(true);
+    }
+  });
+
+  // Also allow Ctrl+F when focus is in the panel content area
+  output.setAttribute('tabindex', '0');
 
   // Public methods
   const api = {
@@ -47,9 +251,11 @@ export function createOutputPanel() {
       output.innerHTML = '<span class="loading">Processing...</span>';
     },
 
-    showResult: (data, format) => {
+    showResult: (data, format, executionTime) => {
       lastResultData = data;
       lastCsvCache = null; // Invalidate cache on new data
+      originalOutputHTML = ''; // Reset for new results
+      clearSearch();
       const isArray = Array.isArray(data);
 
       if (format === 'json') {
@@ -68,6 +274,10 @@ export function createOutputPanel() {
       // Update last run time
       const now = new Date();
       lastRunTime.textContent = now.toLocaleTimeString();
+
+      // Update stats bar
+      statsBar.innerHTML = generateStats(data, executionTime);
+      statsBar.style.display = 'flex';
 
       api.hideError();
     },
@@ -99,6 +309,8 @@ export function createOutputPanel() {
       output.textContent = '';
       lastResultData = null;
       lastCsvCache = null;
+      statsBar.innerHTML = '';
+      statsBar.style.display = 'none';
       api.hideError();
     },
 

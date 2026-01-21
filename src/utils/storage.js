@@ -1,6 +1,7 @@
 const STORAGE_KEYS = {
   HISTORY: 'jq-history',
-  SAVED_QUERIES: 'jq-saved-queries'
+  SAVED_QUERIES: 'jq-saved-queries',
+  THEME: 'jq-theme'
 };
 
 // Debounce utility
@@ -95,6 +96,24 @@ export class Storage {
       } catch (e) {
         console.error('Failed to flush queries:', e);
       }
+    }
+  }
+
+  // Theme methods
+  static getTheme() {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.THEME) || 'light';
+    } catch (e) {
+      console.error('Failed to load theme:', e);
+      return 'light';
+    }
+  }
+
+  static saveTheme(theme) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.THEME, theme);
+    } catch (e) {
+      console.error('Failed to save theme:', e);
     }
   }
 }
