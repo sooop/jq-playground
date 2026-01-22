@@ -959,3 +959,23 @@ tr:hover {
     border-color: #f44336;
     color: white;
 }
+
+/* CSV/TSV Format Label */
+.input-format-label {
+    font-size: 10px;
+    font-weight: normal;
+    color: var(--text-tertiary);
+    margin-left: 6px;
+}
+
+/* Parse CSV Button */
+#parseCsvBtn {
+    background: var(--accent-primary);
+    color: white;
+    border-color: var(--accent-primary);
+    font-weight: 500;
+}
+
+#parseCsvBtn:hover {
+    opacity: 0.9;
+}

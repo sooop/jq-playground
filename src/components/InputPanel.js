@@ -1,19 +1,23 @@
 import { readFile } from '../core/file-handler.js';
 import { handleTabKey } from '../utils/keyboard.js';
 import { Storage } from '../utils/storage.js';
+import { csvToJson, detectDelimiter } from '../core/csv-parser.js';
 
 export function createInputPanel(onInputChange) {
   const panel = document.createElement('div');
   panel.className = 'panel';
   panel.innerHTML = `
     <div class="panel-header">
-      <span class="panel-title">Input</span>
+      <span class="panel-title">
+        Input <span id="inputFormat" class="input-format-label"></span>
+      </span>
       <div class="panel-actions">
+        <button id="parseCsvBtn" style="display: none;">Parse as CSV</button>
         <button id="formatJsonBtn" title="Format JSON (Ctrl+Shift+F)">Format</button>
         <button id="clearInputBtn">Clear</button>
         <button id="loadFileBtn">Load File</button>
         <button id="inputHistoryBtn">History</button>
-        <input type="file" id="fileInput" accept=".json,.txt" style="display: none;">
+        <input type="file" id="fileInput" accept=".json,.txt,.csv,.tsv" style="display: none;">
       </div>
     </div>
     <div class="panel-content">
@@ -26,6 +30,8 @@ export function createInputPanel(onInputChange) {
   const fileInput = panel.querySelector('#fileInput');
   const panelContent = panel.querySelector('.panel-content');
   const dragOverlay = panel.querySelector('#dragOverlay');
+  const formatLabel = panel.querySelector('#inputFormat');
+  const parseCsvBtn = panel.querySelector('#parseCsvBtn');
 
   // Track current file name
   let currentFileName = null;
@@ -131,6 +137,50 @@ export function createInputPanel(onInputChange) {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
+  // Update format label
+  const updateFormatLabel = (fileName) => {
+    if (!fileName) {
+      formatLabel.textContent = '';
+      return;
+    }
+    const ext = fileName.split('.').pop().toUpperCase();
+    if (['CSV', 'TSV'].includes(ext)) {
+      formatLabel.textContent = `(${ext} → JSON)`;
+    } else {
+      formatLabel.textContent = '';
+    }
+  };
+
+  // Detect if text looks like CSV
+  const isCsvLike = (text) => {
+    // Check if valid JSON first
+    try {
+      JSON.parse(text);
+      return false;
+    } catch {
+      // Need at least 2 lines
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) return false;
+
+      // Use detectDelimiter from csv-parser
+      const delimiter = detectDelimiter(text);
+      return delimiter !== null;
+    }
+  };
+
+  // Convert CSV/TSV to JSON
+  const convertCsvToJson = async (text, fileName) => {
+    try {
+      const jsonData = csvToJson(text, {
+        hasHeader: true,
+        inferTypes: false
+      });
+      return JSON.stringify(jsonData, null, 2);
+    } catch (error) {
+      throw new Error('CSV parsing failed: ' + error.message);
+    }
+  };
+
   // Format JSON function
   const formatJson = () => {
     const value = textarea.value.trim();
@@ -152,6 +202,17 @@ export function createInputPanel(onInputChange) {
     autoSaveInput();
   });
 
+  textarea.addEventListener('paste', (e) => {
+    setTimeout(() => {
+      const text = textarea.value;
+      if (isCsvLike(text)) {
+        parseCsvBtn.style.display = 'inline-block';
+      } else {
+        parseCsvBtn.style.display = 'none';
+      }
+    }, 10);
+  });
+
   textarea.addEventListener('keydown', (e) => {
     // Ctrl+Shift+F: Format JSON
     if (e.ctrlKey && e.shiftKey && e.key === 'F') {
@@ -167,7 +228,23 @@ export function createInputPanel(onInputChange) {
   panel.querySelector('#clearInputBtn').addEventListener('click', () => {
     textarea.value = '';
     currentFileName = null;
+    updateFormatLabel(null);
+    parseCsvBtn.style.display = 'none';
     onInputChange();
+  });
+
+  parseCsvBtn.addEventListener('click', async () => {
+    const content = textarea.value;
+    try {
+      const jsonContent = await convertCsvToJson(content, null);
+      textarea.value = jsonContent;
+      currentFileName = null;
+      updateFormatLabel(null);
+      parseCsvBtn.style.display = 'none';
+      onInputChange();
+    } catch (error) {
+      alert(error.message);
+    }
   });
 
   panel.querySelector('#loadFileBtn').addEventListener('click', () => {
@@ -179,9 +256,26 @@ export function createInputPanel(onInputChange) {
     if (!file) return;
 
     try {
-      const content = await readFile(file);
+      let content = await readFile(file);
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      // Auto-convert CSV/TSV to JSON
+      if (ext === 'csv' || ext === 'tsv') {
+        try {
+          content = await convertCsvToJson(content, file.name);
+          currentFileName = file.name;
+          updateFormatLabel(file.name);
+        } catch (error) {
+          alert(error.message + '\n\nShowing original content.');
+          currentFileName = file.name;
+          updateFormatLabel(null);
+        }
+      } else {
+        currentFileName = file.name;
+        updateFormatLabel(null);
+      }
+
       textarea.value = content;
-      currentFileName = file.name;
       onInputChange();
 
       // Immediately save file loads
@@ -251,9 +345,26 @@ export function createInputPanel(onInputChange) {
     if (!file) return;
 
     try {
-      const content = await readFile(file);
+      let content = await readFile(file);
+      const ext = file.name.split('.').pop().toLowerCase();
+
+      // Auto-convert CSV/TSV to JSON
+      if (ext === 'csv' || ext === 'tsv') {
+        try {
+          content = await convertCsvToJson(content, file.name);
+          currentFileName = file.name;
+          updateFormatLabel(file.name);
+        } catch (error) {
+          alert(error.message + '\n\nShowing original content.');
+          currentFileName = file.name;
+          updateFormatLabel(null);
+        }
+      } else {
+        currentFileName = file.name;
+        updateFormatLabel(null);
+      }
+
       textarea.value = content;
-      currentFileName = file.name;
       onInputChange();
 
       // Immediately save file drops

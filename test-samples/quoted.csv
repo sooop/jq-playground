@@ -1,0 +1,5 @@
+name,description,price
+"Product A","Multi-line
+description",100
+"Product B","Contains ""quotes""",200
+"Product C","Normal item",150

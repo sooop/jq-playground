@@ -18,18 +18,53 @@ export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp) {
 
   const themeToggleBtn = header.querySelector('#themeToggleBtn');
 
-  // Initialize theme from storage
-  const savedTheme = Storage.getTheme();
-  if (savedTheme === 'dark') {
-    document.documentElement.classList.add('dark');
-    themeToggleBtn.textContent = '🌙';
+  // Get system dark mode preference
+  const systemDarkMode = window.matchMedia('(prefers-color-scheme: dark)');
+
+  // Apply theme based on setting
+  function applyTheme(theme) {
+    const isDark = theme === 'dark' || (theme === 'system' && systemDarkMode.matches);
+    document.documentElement.classList.toggle('dark', isDark);
+
+    // Update button icon
+    if (theme === 'system') {
+      themeToggleBtn.textContent = '💻';
+      themeToggleBtn.title = 'Theme: System';
+    } else if (theme === 'dark') {
+      themeToggleBtn.textContent = '🌙';
+      themeToggleBtn.title = 'Theme: Dark';
+    } else {
+      themeToggleBtn.textContent = '☀️';
+      themeToggleBtn.title = 'Theme: Light';
+    }
   }
 
-  // Theme toggle handler
+  // Initialize theme from storage
+  const savedTheme = Storage.getTheme();
+  applyTheme(savedTheme);
+
+  // Listen for system theme changes (only when theme is 'system')
+  systemDarkMode.addEventListener('change', () => {
+    if (Storage.getTheme() === 'system') {
+      applyTheme('system');
+    }
+  });
+
+  // Theme toggle handler: light -> dark -> system -> light
   themeToggleBtn.addEventListener('click', () => {
-    const isDark = document.documentElement.classList.toggle('dark');
-    themeToggleBtn.textContent = isDark ? '🌙' : '☀️';
-    Storage.saveTheme(isDark ? 'dark' : 'light');
+    const currentTheme = Storage.getTheme();
+    let nextTheme;
+
+    if (currentTheme === 'light') {
+      nextTheme = 'dark';
+    } else if (currentTheme === 'dark') {
+      nextTheme = 'system';
+    } else {
+      nextTheme = 'light';
+    }
+
+    Storage.saveTheme(nextTheme);
+    applyTheme(nextTheme);
   });
 
   header.querySelector('#helpBtn').addEventListener('click', onShowHelp);

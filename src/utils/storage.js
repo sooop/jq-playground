@@ -389,10 +389,10 @@ export class Storage {
 
   static getTheme() {
     try {
-      return localStorage.getItem(STORAGE_KEYS.THEME) || 'light';
+      return localStorage.getItem(STORAGE_KEYS.THEME) || 'system';
     } catch (e) {
       console.error('Failed to load theme:', e);
-      return 'light';
+      return 'system';
     }
   }
 
