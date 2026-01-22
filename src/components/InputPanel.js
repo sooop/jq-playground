@@ -1,5 +1,6 @@
 import { readFile } from '../core/file-handler.js';
 import { handleTabKey } from '../utils/keyboard.js';
+import { Storage } from '../utils/storage.js';
 
 export function createInputPanel(onInputChange) {
   const panel = document.createElement('div');
@@ -11,16 +12,12 @@ export function createInputPanel(onInputChange) {
         <button id="formatJsonBtn" title="Format JSON (Ctrl+Shift+F)">Format</button>
         <button id="clearInputBtn">Clear</button>
         <button id="loadFileBtn">Load File</button>
+        <button id="inputHistoryBtn">History</button>
         <input type="file" id="fileInput" accept=".json,.txt" style="display: none;">
       </div>
     </div>
     <div class="panel-content">
-      <textarea id="input" placeholder="Paste JSON here or drag & drop a file...">{
-  "users": [
-    {"name": "Alice", "age": 30, "city": "Seoul"},
-    {"name": "Bob", "age": 25, "city": "Busan"}
-  ]
-}</textarea>
+      <textarea id="input" placeholder="Paste JSON here or drag & drop a file..."></textarea>
       <div class="drag-overlay" id="dragOverlay">Drop file here</div>
     </div>
   `;
@@ -29,6 +26,110 @@ export function createInputPanel(onInputChange) {
   const fileInput = panel.querySelector('#fileInput');
   const panelContent = panel.querySelector('.panel-content');
   const dragOverlay = panel.querySelector('#dragOverlay');
+
+  // Track current file name
+  let currentFileName = null;
+
+  // Debounce timer for auto-save
+  let saveDebounceTimer = null;
+
+  // Create history dropdown
+  const historyDropdown = document.createElement('div');
+  historyDropdown.className = 'dropdown input-history-dropdown';
+  historyDropdown.style.display = 'none';
+  historyDropdown.innerHTML = `
+    <div class="dropdown-header">
+      <input type="text" id="inputHistorySearch" placeholder="Search history...">
+      <button id="clearAllInputHistory" class="clear-all-btn">Clear All</button>
+    </div>
+    <div class="dropdown-list" id="inputHistoryList"></div>
+  `;
+  document.body.appendChild(historyDropdown);
+
+  const historyBtn = panel.querySelector('#inputHistoryBtn');
+  const searchInput = historyDropdown.querySelector('#inputHistorySearch');
+  const historyList = historyDropdown.querySelector('#inputHistoryList');
+  const clearAllBtn = historyDropdown.querySelector('#clearAllInputHistory');
+
+  // Auto-save input (20 second debounce)
+  const autoSaveInput = () => {
+    clearTimeout(saveDebounceTimer);
+    saveDebounceTimer = setTimeout(async () => {
+      const content = textarea.value.trim();
+      if (content) {
+        await Storage.saveInputHistory(content, currentFileName);
+      }
+    }, 20000);
+  };
+
+  // Load and display history
+  const loadHistory = async (searchTerm = '') => {
+    let items;
+    if (searchTerm) {
+      items = await Storage.searchInputHistory(searchTerm);
+    } else {
+      items = await Storage.getInputHistory(50);
+    }
+
+    if (items.length === 0) {
+      historyList.innerHTML = '<div class="dropdown-item">No history found</div>';
+      return;
+    }
+
+    historyList.innerHTML = items.map(item => {
+      const date = new Date(item.timestamp).toLocaleString();
+      const size = formatFileSize(item.size);
+      const preview = item.content.substring(0, 80).replace(/\n/g, ' ');
+
+      return `
+        <div class="dropdown-item input-history-item" data-id="${item.id}">
+          <div class="input-history-content">
+            <div class="input-history-preview">${preview}...</div>
+            <div class="input-history-meta">${size} • ${date}</div>
+          </div>
+          <button class="delete-input-history" data-id="${item.id}" title="Delete">×</button>
+        </div>
+      `;
+    }).join('');
+
+    // Add click handlers
+    historyList.querySelectorAll('.input-history-item').forEach(item => {
+      const id = parseInt(item.dataset.id);
+      item.addEventListener('click', async (e) => {
+        if (e.target.classList.contains('delete-input-history')) {
+          return; // Handled by delete button
+        }
+
+        const historyItem = items.find(h => h.id === id);
+        if (historyItem) {
+          textarea.value = historyItem.content;
+          currentFileName = historyItem.fileName;
+          onInputChange();
+          historyDropdown.style.display = 'none';
+
+          // Update lastUsed
+          await Storage.saveInputHistory(historyItem.content, historyItem.fileName);
+        }
+      });
+    });
+
+    // Delete buttons
+    historyList.querySelectorAll('.delete-input-history').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = parseInt(e.target.dataset.id);
+        await Storage.deleteInputHistory(id);
+        loadHistory(searchInput.value);
+      });
+    });
+  };
+
+  // Format file size
+  const formatFileSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
 
   // Format JSON function
   const formatJson = () => {
@@ -39,13 +140,18 @@ export function createInputPanel(onInputChange) {
       const parsed = JSON.parse(value);
       textarea.value = JSON.stringify(parsed, null, 4);
       onInputChange();
+      autoSaveInput();
     } catch (error) {
       alert('Invalid JSON: ' + error.message);
     }
   };
 
   // Event listeners
-  textarea.addEventListener('input', onInputChange);
+  textarea.addEventListener('input', () => {
+    onInputChange();
+    autoSaveInput();
+  });
+
   textarea.addEventListener('keydown', (e) => {
     // Ctrl+Shift+F: Format JSON
     if (e.ctrlKey && e.shiftKey && e.key === 'F') {
@@ -60,6 +166,7 @@ export function createInputPanel(onInputChange) {
 
   panel.querySelector('#clearInputBtn').addEventListener('click', () => {
     textarea.value = '';
+    currentFileName = null;
     onInputChange();
   });
 
@@ -74,11 +181,54 @@ export function createInputPanel(onInputChange) {
     try {
       const content = await readFile(file);
       textarea.value = content;
+      currentFileName = file.name;
       onInputChange();
+
+      // Immediately save file loads
+      await Storage.saveInputHistory(content, currentFileName);
     } catch (error) {
       alert(error.message);
     }
     e.target.value = '';
+  });
+
+  // History button
+  historyBtn.addEventListener('click', async () => {
+    if (historyDropdown.style.display === 'none') {
+      const rect = historyBtn.getBoundingClientRect();
+      historyDropdown.style.top = rect.bottom + 5 + 'px';
+      historyDropdown.style.right = window.innerWidth - rect.right + 'px';
+      historyDropdown.style.display = 'block';
+      searchInput.value = '';
+      await loadHistory();
+      searchInput.focus();
+    } else {
+      historyDropdown.style.display = 'none';
+    }
+  });
+
+  // Search input
+  let searchDebounce = null;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      loadHistory(searchInput.value);
+    }, 300);
+  });
+
+  // Clear all button
+  clearAllBtn.addEventListener('click', async () => {
+    if (confirm('Clear all input history?')) {
+      await Storage.clearAllInputHistory();
+      historyDropdown.style.display = 'none';
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!historyDropdown.contains(e.target) && e.target !== historyBtn) {
+      historyDropdown.style.display = 'none';
+    }
   });
 
   // Drag and drop
@@ -103,11 +253,24 @@ export function createInputPanel(onInputChange) {
     try {
       const content = await readFile(file);
       textarea.value = content;
+      currentFileName = file.name;
       onInputChange();
+
+      // Immediately save file drops
+      await Storage.saveInputHistory(content, currentFileName);
     } catch (error) {
       alert(error.message);
     }
   });
+
+  // API
+  panel.api = {
+    getCurrentFileName: () => currentFileName,
+    restoreInput: (content, fileName) => {
+      textarea.value = content;
+      currentFileName = fileName;
+    }
+  };
 
   return panel;
 }

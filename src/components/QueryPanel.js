@@ -62,7 +62,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       </div>
     </div>
     <div class="panel-content autocomplete-container">
-      <textarea id="query" placeholder="Enter jq query...">.users[] | select(.age > 25)</textarea>
+      <textarea id="query" placeholder="Enter jq query..."></textarea>
       <div class="autocomplete-list" id="autocompleteList"></div>
     </div>
   `;
@@ -75,6 +75,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     <div class="history-header">
       <input type="text" class="history-search" id="historySearch" placeholder="Search history..." />
       <div class="history-actions">
+        <button id="clearAllHistoryBtn" class="clear-all-btn" title="Clear all history">Clear All</button>
         <button id="importHistoryBtn" title="Import history">Import</button>
         <button id="exportHistoryBtn" title="Export history">Export</button>
       </div>
@@ -106,13 +107,29 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   const autocompleteList = panel.querySelector('#autocompleteList');
 
   // State
-  let queryHistory = Storage.getHistory();
+  let queryHistory = [];
   let savedQueries = Storage.getSavedQueries();
   let autocompleteItems = [];
   let selectedAutocompleteIndex = -1;
 
+  // Load query history asynchronously
+  (async () => {
+    queryHistory = await Storage.getQueryHistory(MAX_HISTORY);
+    renderHistory();
+  })();
+
   // Event delegation for history items (prevents memory leaks)
-  historyContent.addEventListener('click', (e) => {
+  historyContent.addEventListener('click', async (e) => {
+    const deleteBtn = e.target.closest('.delete-history-item');
+    if (deleteBtn) {
+      e.stopPropagation();
+      const id = parseInt(deleteBtn.dataset.id);
+      await Storage.deleteQueryHistory(id);
+      queryHistory = await Storage.getQueryHistory(MAX_HISTORY);
+      renderHistory(historySearch.value);
+      return;
+    }
+
     const item = e.target.closest('.history-item');
     if (!item) return;
 
@@ -266,6 +283,15 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   // History search - prevent closing dropdown on click
   historySearch.addEventListener('click', (e) => {
     e.stopPropagation();
+  });
+
+  // Clear all history
+  historyList.querySelector('#clearAllHistoryBtn').addEventListener('click', async () => {
+    if (confirm('Clear all query history?')) {
+      await Storage.clearAllQueryHistory();
+      queryHistory = [];
+      renderHistory();
+    }
   });
 
   // Export history
@@ -473,17 +499,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   const api = {
     getQuery: () => textarea.value.trim(),
 
-    addToHistory: (query) => {
-      if (!query || query === queryHistory[0]) return;
+    addToHistory: async (query) => {
+      if (!query) return;
 
-      queryHistory = queryHistory.filter(q => q !== query);
-      queryHistory.unshift(query);
-
-      if (queryHistory.length > MAX_HISTORY) {
-        queryHistory = queryHistory.slice(0, MAX_HISTORY);
-      }
-
-      Storage.saveHistory(queryHistory);
+      await Storage.saveQueryHistory(query);
+      queryHistory = await Storage.getQueryHistory(MAX_HISTORY);
       renderHistory();
     },
 
@@ -511,10 +531,9 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     let filteredHistory = queryHistory;
     if (searchTerm) {
       filteredHistory = queryHistory
-        .map(q => ({ query: q, ...fuzzyMatch(searchTerm, q) }))
+        .map(item => ({ ...item, ...fuzzyMatch(searchTerm, item.query) }))
         .filter(item => item.match)
-        .sort((a, b) => b.score - a.score)
-        .map(item => item.query);
+        .sort((a, b) => b.score - a.score);
     }
 
     if (filteredHistory.length === 0) {
@@ -522,10 +541,13 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       return;
     }
 
-    historyContent.innerHTML = filteredHistory.map(q =>
-      `<div class="history-item" data-query="${escapeHtml(q)}">${escapeHtml(q)}</div>`
+    historyContent.innerHTML = filteredHistory.map(item =>
+      `<div class="history-item history-query" data-query="${escapeHtml(item.query)}">
+        <span>${escapeHtml(item.query)}</span>
+        <button class="delete-history-item" data-id="${item.id}" title="Delete">×</button>
+      </div>`
     ).join('');
-    // Event delegation handles clicks (see line 115)
+    // Event delegation handles clicks (see line 121)
   }
 
   function renderSavedQueries(searchTerm = '') {

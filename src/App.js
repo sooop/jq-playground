@@ -30,6 +30,9 @@ export class App {
       return;
     }
 
+    // Initialize storage (IndexedDB + migration)
+    await Storage.init();
+
     // Create components
     const header = createHeader(
       () => this.loadSample(),
@@ -105,6 +108,13 @@ export class App {
     app.appendChild(this.modal);
     app.appendChild(this.helpModal);
 
+    // Restore last input from history
+    const lastInput = await Storage.getLastInput();
+    if (lastInput?.content) {
+      this.inputPanel.api.restoreInput(lastInput.content, lastInput.fileName);
+      this.executeQuery();
+    }
+
     // Format change listener - force execute even if paused
     this.outputPanel.querySelector('#formatSelect').addEventListener('change', () => {
       this.executeQuery(true);
@@ -124,9 +134,6 @@ export class App {
     window.addEventListener('beforeunload', () => {
       Storage.flushAll();
     });
-
-    // Initial execution
-    this.executeQuery();
   }
 
   manualExecute() {
