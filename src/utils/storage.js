@@ -109,6 +109,20 @@ export class Storage {
   // ==================== INPUT HISTORY ====================
 
   /**
+   * Format content for storage (minify JSON, trim text)
+   * @param {string} content - Raw content
+   * @returns {string} Formatted content
+   */
+  static _formatContent(content) {
+    try {
+      const parsed = JSON.parse(content);
+      return JSON.stringify(parsed); // Minified JSON
+    } catch {
+      return content.trim(); // Plain text: trim only
+    }
+  }
+
+  /**
    * Save input history entry (debounce handled by caller)
    * @param {string} content - Input content
    * @param {string} fileName - File name (optional)
@@ -118,22 +132,54 @@ export class Storage {
       return;
     }
 
-    const entry = {
-      content,
-      fileName,
-      size: new Blob([content]).size,
-      timestamp: new Date().toISOString(),
-      lastUsed: new Date().toISOString()
-    };
+    const formattedContent = this._formatContent(content);
 
     try {
       if (useIndexedDB && idb) {
-        await idb.add('input-history', entry);
-        await idb.enforceLimit('input-history', LIMITS.INPUT_HISTORY, 'timestamp');
+        // Check for duplicate
+        const existing = await idb.findByField('input-history', 'content', formattedContent);
+
+        if (existing) {
+          // Update lastUsed only
+          await idb.update('input-history', existing.id, {
+            lastUsed: new Date().toISOString()
+          });
+        } else {
+          // Create new entry
+          const entry = {
+            content: formattedContent,
+            fileName,
+            size: new Blob([formattedContent]).size,
+            timestamp: new Date().toISOString(),
+            lastUsed: new Date().toISOString()
+          };
+          await idb.add('input-history', entry);
+          await idb.enforceLimit('input-history', LIMITS.INPUT_HISTORY, 'timestamp');
+        }
       } else {
         // Fallback: localStorage (limited)
         const history = Storage._getInputHistoryFromLocalStorage();
-        history.unshift(entry);
+
+        // Check for duplicate
+        const existingIndex = history.findIndex(item => item.content === formattedContent);
+
+        if (existingIndex !== -1) {
+          // Update lastUsed and move to front
+          history[existingIndex].lastUsed = new Date().toISOString();
+          const [item] = history.splice(existingIndex, 1);
+          history.unshift(item);
+        } else {
+          // Create new entry
+          const entry = {
+            content: formattedContent,
+            fileName,
+            size: new Blob([formattedContent]).size,
+            timestamp: new Date().toISOString(),
+            lastUsed: new Date().toISOString()
+          };
+          history.unshift(entry);
+        }
+
         if (history.length > 50) {
           history.splice(50);
         }
@@ -147,13 +193,16 @@ export class Storage {
   /**
    * Get input history
    * @param {number} limit - Maximum number of items
+   * @param {string} sortBy - Sort by 'timestamp' or 'lastUsed' (default: 'timestamp')
    */
-  static async getInputHistory(limit = 50) {
+  static async getInputHistory(limit = 50, sortBy = 'timestamp') {
     try {
       if (useIndexedDB && idb) {
-        return await idb.getAll('input-history', 'timestamp', limit);
+        return await idb.getAll('input-history', sortBy, limit);
       } else {
         const history = Storage._getInputHistoryFromLocalStorage();
+        // Sort by specified field
+        history.sort((a, b) => new Date(b[sortBy]) - new Date(a[sortBy]));
         return history.slice(0, limit);
       }
     } catch (error) {

@@ -819,18 +819,29 @@ tr:hover {
     padding: 8px;
     border-bottom: 1px solid var(--border-light);
     display: flex;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
+    flex-wrap: wrap;
 }
 
 .input-history-dropdown .dropdown-header input {
     flex: 1;
+    min-width: 120px;
     padding: 6px 8px;
     border: 1px solid var(--border);
     border-radius: 3px;
     background: var(--bg-secondary);
     color: var(--text-primary);
     font-size: 12px;
+}
+
+.input-history-dropdown .dropdown-header .sort-toggle {
+    padding: 4px 8px;
+    font-size: 11px;
+}
+
+.input-history-dropdown .dropdown-header .clear-all-btn {
+    flex-shrink: 0;
 }
 
 .input-history-dropdown .dropdown-header input:focus {
@@ -958,6 +969,43 @@ tr:hover {
     background: #f44336;
     border-color: #f44336;
     color: white;
+}
+
+/* Sort Toggle Button */
+.sort-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid var(--border-primary);
+    border-radius: 3px;
+    background: var(--bg-primary);
+    transition: all 0.15s;
+}
+
+.sort-toggle:hover {
+    background: var(--bg-secondary);
+}
+
+.sort-toggle .sort-label {
+    font-size: 11px;
+}
+
+/* Input History Meta - Improved timestamp display */
+.input-history-meta {
+    font-size: 10px;
+    color: var(--text-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.input-history-time {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
 }
 
 /* CSV/TSV Format Label */

@@ -40,7 +40,10 @@ export class App {
       () => this.helpModal.api.show()
     );
 
-    this.inputPanel = createInputPanel(() => this.executeQuery());
+    this.inputPanel = createInputPanel(
+      () => this.executeQuery(),
+      () => this.executeQuery(true)
+    );
     this.queryPanel = createQueryPanel(
       () => this.executeQuery(),
       (query) => this.modal.api.show(query),

@@ -252,6 +252,66 @@ export class IndexedDBStorage {
   }
 
   /**
+   * Find a record by field value
+   * @param {string} storeName - Object store name
+   * @param {string} field - Field name to search
+   * @param {*} value - Value to match
+   */
+  async findByField(storeName, field, value) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([storeName], 'readonly');
+      const store = transaction.objectStore(storeName);
+      const request = store.openCursor();
+
+      request.onsuccess = (event) => {
+        const cursor = event.target.result;
+        if (cursor) {
+          if (cursor.value[field] === value) {
+            resolve(cursor.value);
+          } else {
+            cursor.continue();
+          }
+        } else {
+          resolve(null); // Not found
+        }
+      };
+
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Update a record by ID
+   * @param {string} storeName - Object store name
+   * @param {number} id - Record ID
+   * @param {object} updates - Fields to update
+   */
+  async update(storeName, id, updates) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([storeName], 'readwrite');
+      const store = transaction.objectStore(storeName);
+      const getRequest = store.get(id);
+
+      getRequest.onsuccess = () => {
+        const record = getRequest.result;
+        if (!record) {
+          reject(new Error('Record not found'));
+          return;
+        }
+
+        // Merge updates
+        const updatedRecord = { ...record, ...updates };
+        const putRequest = store.put(updatedRecord);
+
+        putRequest.onsuccess = () => resolve(updatedRecord);
+        putRequest.onerror = () => reject(putRequest.error);
+      };
+
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+  }
+
+  /**
    * Close the database connection
    */
   close() {

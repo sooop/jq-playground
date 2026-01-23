@@ -194,6 +194,21 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
   }
 
+  // Format query with proper spacing
+  const formatQuery = () => {
+    const value = textarea.value.trim();
+    if (!value) return;
+
+    // Simple formatting: add spaces after pipes and around operators
+    let formatted = value
+      .replace(/\|/g, ' | ')
+      .replace(/\s+\|\s+/g, ' | ')
+      .replace(/\s+/g, ' ');
+
+    textarea.value = formatted;
+    onQueryChange();
+  };
+
   // Event listeners
   textarea.addEventListener('input', (e) => {
     onQueryChange();
@@ -242,6 +257,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       }
       return;
     }
+
+    // Ctrl+Shift+F: Format query
+    if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+      e.preventDefault();
+      formatQuery();
+      return;
+    }
+
     handleTabKey(e);
   });
 
@@ -492,6 +515,18 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         !savedQueriesList.contains(e.target)) {
       historyList.classList.remove('show');
       savedQueriesList.classList.remove('show');
+    }
+  });
+
+  // ESC key to close dropdowns
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (historyList.classList.contains('show')) {
+        historyList.classList.remove('show');
+      }
+      if (savedQueriesList.classList.contains('show')) {
+        savedQueriesList.classList.remove('show');
+      }
     }
   });
 

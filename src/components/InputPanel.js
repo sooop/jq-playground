@@ -3,7 +3,7 @@ import { handleTabKey } from '../utils/keyboard.js';
 import { Storage } from '../utils/storage.js';
 import { csvToJson, detectDelimiter } from '../core/csv-parser.js';
 
-export function createInputPanel(onInputChange) {
+export function createInputPanel(onInputChange, onExecuteQuery) {
   const panel = document.createElement('div');
   panel.className = 'panel';
   panel.innerHTML = `
@@ -46,6 +46,9 @@ export function createInputPanel(onInputChange) {
   historyDropdown.innerHTML = `
     <div class="dropdown-header">
       <input type="text" id="inputHistorySearch" placeholder="Search history...">
+      <button id="sortToggleBtn" class="sort-toggle" title="Toggle sort: Register time ↔ Last used time">
+        <span class="sort-label">등록순</span>
+      </button>
       <button id="clearAllInputHistory" class="clear-all-btn">Clear All</button>
     </div>
     <div class="dropdown-list" id="inputHistoryList"></div>
@@ -53,9 +56,15 @@ export function createInputPanel(onInputChange) {
   document.body.appendChild(historyDropdown);
 
   const historyBtn = panel.querySelector('#inputHistoryBtn');
+  const sortToggleBtn = historyDropdown.querySelector('#sortToggleBtn');
+  const sortLabel = sortToggleBtn.querySelector('.sort-label');
   const searchInput = historyDropdown.querySelector('#inputHistorySearch');
   const historyList = historyDropdown.querySelector('#inputHistoryList');
   const clearAllBtn = historyDropdown.querySelector('#clearAllInputHistory');
+
+  // Sort state (default: timestamp)
+  let currentSortBy = localStorage.getItem('jq-input-sort') || 'timestamp';
+  sortLabel.textContent = currentSortBy === 'timestamp' ? '등록순' : '사용순';
 
   // Auto-save input (20 second debounce)
   const autoSaveInput = () => {
@@ -68,13 +77,27 @@ export function createInputPanel(onInputChange) {
     }, 20000);
   };
 
+  // Format detailed timestamp (YYYY-MM-DD HH:MM:SS)
+  const formatDetailedTimestamp = (iso) => {
+    const date = new Date(iso);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  };
+
   // Load and display history
   const loadHistory = async (searchTerm = '') => {
     let items;
     if (searchTerm) {
       items = await Storage.searchInputHistory(searchTerm);
+      // Sort search results by current sort preference
+      items.sort((a, b) => new Date(b[currentSortBy]) - new Date(a[currentSortBy]));
     } else {
-      items = await Storage.getInputHistory(50);
+      items = await Storage.getInputHistory(50, currentSortBy);
     }
 
     if (items.length === 0) {
@@ -83,15 +106,26 @@ export function createInputPanel(onInputChange) {
     }
 
     historyList.innerHTML = items.map(item => {
-      const date = new Date(item.timestamp).toLocaleString();
       const size = formatFileSize(item.size);
       const preview = item.content.substring(0, 80).replace(/\n/g, ' ');
+      const registeredTime = formatDetailedTimestamp(item.timestamp);
+      const lastUsedTime = item.lastUsed !== item.timestamp
+        ? formatDetailedTimestamp(item.lastUsed)
+        : null;
 
       return `
         <div class="dropdown-item input-history-item" data-id="${item.id}">
           <div class="input-history-content">
             <div class="input-history-preview">${preview}...</div>
-            <div class="input-history-meta">${size} • ${date}</div>
+            <div class="input-history-meta">
+              <div class="input-history-time">
+                <span>${item.fileName || 'Untitled'}</span> • <span>${size}</span>
+              </div>
+              <div class="input-history-time">
+                <span>등록: ${registeredTime}</span>
+                ${lastUsedTime ? `<span> • 사용: ${lastUsedTime}</span>` : ''}
+              </div>
+            </div>
           </div>
           <button class="delete-input-history" data-id="${item.id}" title="Delete">×</button>
         </div>
@@ -214,6 +248,15 @@ export function createInputPanel(onInputChange) {
   });
 
   textarea.addEventListener('keydown', (e) => {
+    // Ctrl+Enter: Execute query
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      if (onExecuteQuery) {
+        onExecuteQuery();
+      }
+      return;
+    }
+
     // Ctrl+Shift+F: Format JSON
     if (e.ctrlKey && e.shiftKey && e.key === 'F') {
       e.preventDefault();
@@ -286,6 +329,18 @@ export function createInputPanel(onInputChange) {
     e.target.value = '';
   });
 
+  // Sort toggle button
+  sortToggleBtn.addEventListener('click', async () => {
+    currentSortBy = currentSortBy === 'timestamp' ? 'lastUsed' : 'timestamp';
+    sortLabel.textContent = currentSortBy === 'timestamp' ? '등록순' : '사용순';
+    localStorage.setItem('jq-input-sort', currentSortBy);
+
+    // Reload history if dropdown is open
+    if (historyDropdown.style.display !== 'none') {
+      await loadHistory(searchInput.value);
+    }
+  });
+
   // History button
   historyBtn.addEventListener('click', async () => {
     if (historyDropdown.style.display === 'none') {
@@ -321,6 +376,13 @@ export function createInputPanel(onInputChange) {
   // Close dropdown when clicking outside
   document.addEventListener('click', (e) => {
     if (!historyDropdown.contains(e.target) && e.target !== historyBtn) {
+      historyDropdown.style.display = 'none';
+    }
+  });
+
+  // ESC key to close dropdown
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && historyDropdown.style.display !== 'none') {
       historyDropdown.style.display = 'none';
     }
   });
