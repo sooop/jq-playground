@@ -53,6 +53,7 @@ export function createOutputPanel() {
   let searchMatches = [];
   let currentMatchIndex = -1;
   let originalOutputHTML = '';
+  let isInErrorState = false;
 
   // Helper function to generate stats
   function generateStats(data, executionTime) {
@@ -256,6 +257,11 @@ export function createOutputPanel() {
       lastCsvCache = null; // Invalidate cache on new data
       originalOutputHTML = ''; // Reset for new results
       clearSearch();
+
+      // 에러 상태 및 stale 스타일 제거
+      isInErrorState = false;
+      output.classList.remove('stale-result');
+
       const isArray = Array.isArray(data);
 
       if (format === 'json') {
@@ -285,6 +291,7 @@ export function createOutputPanel() {
     showError: (message, autoHideDuration = 5000) => {
       errorBanner.textContent = message;
       errorBanner.classList.add('show');
+      isInErrorState = true;
 
       if (errorTimeout) clearTimeout(errorTimeout);
 
@@ -294,13 +301,22 @@ export function createOutputPanel() {
         }, autoHideDuration);
       }
 
-      output.textContent = '';
-      lastResultData = null;
+      // 이전 결과가 있으면 유지, 없으면 비우기
+      if (lastResultData !== null) {
+        output.classList.add('stale-result');
+
+        // stats bar에 "이전 결과" 표시 추가
+        const prevLabel = '<span class="prev-result-label">이전 결과</span>';
+        statsBar.innerHTML = prevLabel + statsBar.innerHTML;
+      } else {
+        output.textContent = '';
+      }
     },
 
     hideError: () => {
       if (errorTimeout) clearTimeout(errorTimeout);
       errorBanner.classList.remove('show');
+      isInErrorState = false;
     },
 
     getFormat: () => formatSelect.value,
@@ -311,6 +327,8 @@ export function createOutputPanel() {
       lastCsvCache = null;
       statsBar.innerHTML = '';
       statsBar.style.display = 'none';
+      isInErrorState = false;
+      output.classList.remove('stale-result');
       api.hideError();
     },
 
