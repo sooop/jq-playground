@@ -301,8 +301,18 @@ export function createOutputPanel() {
         }, autoHideDuration);
       }
 
-      // 이전 결과가 있으면 유지, 없으면 비우기
+      // 이전 결과가 있으면 다시 렌더링하여 유지
       if (lastResultData !== null) {
+        // 현재 format으로 이전 결과를 다시 렌더링
+        const currentFormat = formatSelect.value;
+        const isArray = Array.isArray(lastResultData);
+
+        if (currentFormat === 'json') {
+          output.textContent = JSON.stringify(lastResultData, null, 2);
+        } else if (currentFormat === 'csv') {
+          output.innerHTML = jsonToHTML(lastResultData, isArray);
+        }
+
         output.classList.add('stale-result');
 
         // stats bar에 "이전 결과" 표시 추가

@@ -45,6 +45,43 @@ class JqEngine {
       throw error;
     }
   }
+
+  /**
+   * Execute partial query to infer context type
+   * @param {string} input - JSON input data
+   * @param {string} partialQuery - Query before current pipe position
+   * @returns {Promise<{type: string, keys: string[]}>}
+   */
+  async executeForContext(input, partialQuery) {
+    if (!this.instance) {
+      throw new Error('jq engine not initialized');
+    }
+
+    try {
+      const data = JSON.parse(input);
+      const result = await this.instance.json(data, partialQuery);
+
+      // Infer type and extract keys
+      if (Array.isArray(result)) {
+        if (result.length > 0 && typeof result[0] === 'object') {
+          // Array of objects - extract keys from first few items
+          const keySets = result.slice(0, 3).map(item =>
+            typeof item === 'object' && item !== null ? Object.keys(item) : []
+          );
+          const allKeys = [...new Set(keySets.flat())];
+          return { type: 'array', keys: allKeys };
+        }
+        return { type: 'array', keys: [] };
+      } else if (typeof result === 'object' && result !== null) {
+        return { type: 'object', keys: Object.keys(result) };
+      }
+
+      return { type: typeof result, keys: [] };
+    } catch (error) {
+      // Fallback to 'any' on error
+      return { type: 'any', keys: [] };
+    }
+  }
 }
 
 export const jqEngine = new JqEngine();

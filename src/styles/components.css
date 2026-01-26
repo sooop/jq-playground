@@ -786,7 +786,8 @@ tr:hover {
     gap: 8px;
 }
 
-.autocomplete-item:hover,
+/* hover-locked 클래스가 있을 때는 hover 효과 비활성화 */
+.autocomplete-list:not(.hover-locked) .autocomplete-item:hover,
 .autocomplete-item.selected {
     background: var(--bg-hover);
 }

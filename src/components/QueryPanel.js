@@ -1,6 +1,7 @@
 import { Storage } from '../utils/storage.js';
 import { filterFunctions, INPUT_TYPE_INFO } from '../core/jq-functions.js';
 import { handleTabKey } from '../utils/keyboard.js';
+import { jqEngine } from '../core/jq-engine.js';
 
 const MAX_HISTORY = 100;
 
@@ -111,6 +112,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   let savedQueries = Storage.getSavedQueries();
   let autocompleteItems = [];
   let selectedAutocompleteIndex = -1;
+  // 마우스 이동 감지 변수
+  let hoverLocked = false;
+  let mouseMovementDetector = null;
+  let initialMousePosition = null;
+  const MOVEMENT_THRESHOLD = 5; // pixels
+  // Context cache for context-aware autocomplete
+  let contextCache = new Map(); // {queryHash: {type, keys}}
+  const CONTEXT_CACHE_SIZE = 50;
 
   // Load query history asynchronously
   (async () => {
@@ -212,6 +221,19 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   // Event listeners
   textarea.addEventListener('input', (e) => {
     onQueryChange();
+
+    // Invalidate context cache on input (when pipe position changes)
+    const pipeContext = getPipeContext();
+    if (pipeContext.hasPipe) {
+      const currentQuery = pipeContext.queryBeforePipe;
+      // Keep only current query's cache
+      const currentCache = contextCache.get(currentQuery);
+      contextCache.clear();
+      if (currentCache) {
+        contextCache.set(currentQuery, currentCache);
+      }
+    }
+
     updateAutocomplete();
   });
 
@@ -663,26 +685,171 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     };
   }
 
-  function updateAutocomplete() {
+  /**
+   * Get field access context - extracts the complete field access path to identify prefix
+   * Examples:
+   *   ".users" -> {hasPrefix: false, prefix: '', currentSegment: 'users'}
+   *   ".users.profile.c" -> {hasPrefix: true, prefix: 'users.profile', currentSegment: 'c'}
+   *   ".users[].name" -> {hasPrefix: true, prefix: 'users[]', currentSegment: 'name'}
+   */
+  function getFieldAccessContext() {
+    const text = textarea.value;
+    const cursor = textarea.selectionStart;
+
+    // Find the start of field access by scanning backward for delimiters
+    // Don't include [] as delimiters since they're part of jq field access
+    let start = cursor - 1;
+    while (start >= 0 && !/[\s|(){},;]/.test(text[start])) {
+      start--;
+    }
+    start++; // Move to the first character of the field path
+
+    // Extract the path text from start to cursor
+    const pathText = text.substring(start, cursor);
+
+    // If doesn't start with '.', no prefix
+    if (!pathText.startsWith('.')) {
+      return { hasPrefix: false, prefix: '', currentSegment: pathText };
+    }
+
+    // Remove leading dot and split by last dot
+    const pathWithoutLeadingDot = pathText.substring(1); // Remove the leading '.'
+    const lastDotIndex = pathWithoutLeadingDot.lastIndexOf('.');
+
+    if (lastDotIndex === -1) {
+      // No dots after the leading one, e.g., ".users"
+      return { hasPrefix: false, prefix: '', currentSegment: pathWithoutLeadingDot };
+    }
+
+    // Split by last dot
+    const prefix = pathWithoutLeadingDot.substring(0, lastDotIndex);
+    const currentSegment = pathWithoutLeadingDot.substring(lastDotIndex + 1);
+
+    return { hasPrefix: true, prefix, currentSegment };
+  }
+
+  /**
+   * Get pipe context - finds the last pipe before cursor and returns previous query
+   */
+  function getPipeContext() {
+    const text = textarea.value;
+    const cursor = textarea.selectionStart;
+
+    // Find last pipe before cursor
+    const textBeforeCursor = text.substring(0, cursor);
+    const lastPipeIndex = textBeforeCursor.lastIndexOf('|');
+
+    if (lastPipeIndex === -1) {
+      return { hasPipe: false, queryBeforePipe: '', textAfterPipe: textBeforeCursor };
+    }
+
+    return {
+      hasPipe: true,
+      queryBeforePipe: text.substring(0, lastPipeIndex).trim(),
+      textAfterPipe: text.substring(lastPipeIndex + 1, cursor).trim()
+    };
+  }
+
+  async function updateAutocomplete() {
     const { word, isFieldAccess } = getCurrentWord();
 
     // Field access autocomplete (e.g., .foo, .bar)
     if (isFieldAccess && getInputKeys) {
+      const pipeContext = getPipeContext();
+      let contextKeys = [];
+
+      // Check if we're after a pipe - use context-aware autocomplete
+      if (pipeContext.hasPipe && pipeContext.queryBeforePipe) {
+        const queryHash = pipeContext.queryBeforePipe;
+
+        // Check cache first
+        if (!contextCache.has(queryHash)) {
+          try {
+            const inputData = document.getElementById('input').value.trim();
+            if (inputData) {
+              const context = await jqEngine.executeForContext(inputData, pipeContext.queryBeforePipe);
+
+              // Cache result
+              contextCache.set(queryHash, context);
+
+              // LRU cache cleanup
+              if (contextCache.size > CONTEXT_CACHE_SIZE) {
+                const firstKey = contextCache.keys().next().value;
+                contextCache.delete(firstKey);
+              }
+
+              contextKeys = context.keys || [];
+            }
+          } catch (error) {
+            // Fallback to original behavior on error
+            console.debug('Context execution failed, using fallback', error);
+          }
+        } else {
+          contextKeys = contextCache.get(queryHash).keys || [];
+        }
+      }
+
+      // Merge context keys with input keys (prefer context keys)
       const inputKeys = getInputKeys();
-      if (inputKeys && inputKeys.length > 0) {
-        const lower = word.toLowerCase();
-        const matches = inputKeys
-          .filter(key => key.toLowerCase().startsWith(lower))
-          .slice(0, 10)
-          .map(key => ({
-            name: key,
-            desc: 'Input field',
-            inputType: 'field'
-          }));
+      const allKeys = contextKeys.length > 0
+        ? [...contextKeys, ...inputKeys]
+        : inputKeys;
+
+      if (allKeys && allKeys.length > 0) {
+        // Get path context to detect and strip prefixes
+        const { hasPrefix, prefix, currentSegment } = getFieldAccessContext();
+        const searchTerm = currentSegment || word;
+        const lowerSearchTerm = searchTerm.toLowerCase();
+
+        const matches = allKeys
+          .filter(key => {
+            // If we have a prefix, only show keys that start with it
+            if (hasPrefix && prefix) {
+              if (!key.startsWith(prefix + '.')) return false;
+              const suffix = key.substring(prefix.length + 1);
+              const firstSegment = suffix.split('.')[0];
+              return firstSegment.toLowerCase().startsWith(lowerSearchTerm);
+            }
+
+            // No prefix: match against full path or last segment (existing logic)
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.startsWith(lowerSearchTerm)) return true;
+            const lastSegment = key.split('.').pop().toLowerCase();
+            return lastSegment.startsWith(lowerSearchTerm);
+          })
+          .map(key => {
+            // Strip prefix if applicable
+            let displayName = key;
+            if (hasPrefix && prefix && key.startsWith(prefix + '.')) {
+              displayName = key.substring(prefix.length + 1);
+            }
+
+            return {
+              originalKey: key,      // Full path for reference
+              name: displayName,     // What to insert (suffix only)
+              fullKey: key,          // For context key detection in sorting
+              desc: contextKeys.includes(key) ? 'Context field' : 'Input field',
+              inputType: 'field'
+            };
+          })
+          .sort((a, b) => {
+            // Sort by display name
+            const aStartsWith = a.name.toLowerCase().startsWith(lowerSearchTerm);
+            const bStartsWith = b.name.toLowerCase().startsWith(lowerSearchTerm);
+            if (aStartsWith && !bStartsWith) return -1;
+            if (!aStartsWith && bStartsWith) return 1;
+
+            // Prioritize context keys
+            if (contextKeys.includes(a.fullKey) && !contextKeys.includes(b.fullKey)) return -1;
+            if (!contextKeys.includes(a.fullKey) && contextKeys.includes(b.fullKey)) return 1;
+
+            return a.name.localeCompare(b.name);
+          })
+          .slice(0, 10);
 
         if (matches.length > 0) {
           // Hide if exact match
-          const exactMatch = matches.find(m => m.name.toLowerCase() === word.toLowerCase());
+          const exactMatch = matches.find(m => m.name.toLowerCase() === searchTerm.toLowerCase());
           if (exactMatch && matches.length === 1) {
             hideAutocomplete();
             return;
@@ -725,11 +892,52 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     autocompleteList.classList.add('show');
   }
 
+  function setupMouseMovementDetection() {
+    hoverLocked = true;
+    autocompleteList.classList.add('hover-locked');
+
+    // 초기 마우스 위치 캡처
+    const captureInitialPosition = (e) => {
+      initialMousePosition = { x: e.clientX, y: e.clientY };
+      document.removeEventListener('mousemove', captureInitialPosition);
+    };
+    document.addEventListener('mousemove', captureInitialPosition, { once: true });
+
+    // 이동 감지 핸들러
+    mouseMovementDetector = (e) => {
+      if (!hoverLocked || !initialMousePosition) return;
+
+      const deltaX = Math.abs(e.clientX - initialMousePosition.x);
+      const deltaY = Math.abs(e.clientY - initialMousePosition.y);
+      const totalMovement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+
+      if (totalMovement > MOVEMENT_THRESHOLD) {
+        unlockHover();
+      }
+    };
+
+    document.addEventListener('mousemove', mouseMovementDetector);
+  }
+
+  function unlockHover() {
+    hoverLocked = false;
+    autocompleteList.classList.remove('hover-locked');
+
+    if (mouseMovementDetector) {
+      document.removeEventListener('mousemove', mouseMovementDetector);
+      mouseMovementDetector = null;
+    }
+    initialMousePosition = null;
+  }
+
   function renderAutocomplete() {
     if (autocompleteItems.length === 0) {
       hideAutocomplete();
       return;
     }
+
+    // 이동 감지 설정
+    setupMouseMovementDetection();
 
     autocompleteList.innerHTML = autocompleteItems.map((item, index) => {
       const inputType = item.inputType || 'any';
@@ -743,11 +951,40 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       `;
     }).join('');
 
-    // Add click listeners
+    // Add click and hover listeners
     autocompleteList.querySelectorAll('.autocomplete-item').forEach(item => {
+      const index = parseInt(item.dataset.index);
+
+      // 클릭 핸들러
       item.addEventListener('click', () => {
-        const index = parseInt(item.dataset.index);
         applyAutocomplete(autocompleteItems[index]);
+      });
+
+      // mouseenter: hover 해제된 후 키보드 상태 동기화
+      item.addEventListener('mouseenter', () => {
+        if (!hoverLocked) {
+          selectedAutocompleteIndex = index;
+        }
+      });
+
+      // mouseleave: 메뉴 밖으로 나갈 때만 선택 초기화
+      item.addEventListener('mouseleave', () => {
+        if (!hoverLocked) {
+          const rect = autocompleteList.getBoundingClientRect();
+          const mouseEvent = window.event;
+          if (mouseEvent) {
+            const isOverList = (
+              mouseEvent.clientX >= rect.left &&
+              mouseEvent.clientX <= rect.right &&
+              mouseEvent.clientY >= rect.top &&
+              mouseEvent.clientY <= rect.bottom
+            );
+
+            if (!isOverList) {
+              selectedAutocompleteIndex = -1;
+            }
+          }
+        }
       });
     });
 
@@ -772,6 +1009,15 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     autocompleteList.classList.remove('show');
     autocompleteItems = [];
     selectedAutocompleteIndex = -1;
+
+    // 이동 감지 리스너 정리
+    if (mouseMovementDetector) {
+      document.removeEventListener('mousemove', mouseMovementDetector);
+      mouseMovementDetector = null;
+    }
+    hoverLocked = false;
+    initialMousePosition = null;
+    autocompleteList.classList.remove('hover-locked');
   }
 
   renderHistory();
