@@ -10,6 +10,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     <div class="panel-header">
       <span class="panel-title">
         Input <span id="inputFormat" class="input-format-label"></span>
+        <span id="autoPlayChip" class="auto-play-chip" style="display: none;">자동실행 중</span>
       </span>
       <div class="panel-actions">
         <button id="parseCsvBtn" style="display: none;">Parse as CSV</button>
@@ -234,6 +235,20 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   textarea.addEventListener('input', () => {
     onInputChange();
     autoSaveInput();
+
+    // Show size warning
+    const size = new Blob([textarea.value]).size;
+    if (size > 800 * 1024) {  // 800KB warning
+      formatLabel.textContent = `(${(size / 1024 / 1024).toFixed(1)}MB - 자동실행 제한 임박)`;
+      formatLabel.style.color = 'var(--error-color)';
+    } else if (size > 100 * 1024) {
+      formatLabel.textContent = `(${(size / 1024).toFixed(0)}KB)`;
+      formatLabel.style.color = 'var(--text-tertiary)';
+    } else if (formatLabel.textContent.includes('KB') || formatLabel.textContent.includes('MB')) {
+      // Clear size label if it was showing size info
+      formatLabel.textContent = '';
+      formatLabel.style.color = '';
+    }
   });
 
   textarea.addEventListener('paste', (e) => {
@@ -442,6 +457,10 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     restoreInput: (content, fileName) => {
       textarea.value = content;
       currentFileName = fileName;
+    },
+    setAutoPlayIndicator: (enabled) => {
+      const chip = panel.querySelector('#autoPlayChip');
+      chip.style.display = enabled ? 'inline-block' : 'none';
     }
   };
 

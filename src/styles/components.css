@@ -408,6 +408,62 @@ select {
     display: block;
 }
 
+/* Error Toast */
+.error-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--error-bg);
+    border: 1px solid var(--error-color);
+    border-radius: 4px;
+    padding: 12px 20px;
+    font-size: 12px;
+    color: var(--error-color);
+    box-shadow: 0 4px 12px var(--shadow-heavy);
+    z-index: 9999;
+    max-width: 600px;
+    display: none;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+}
+
+.error-toast.show {
+    display: block;
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* Subtle Stale Result Indicator */
+.output-content.stale-result-subtle {
+    position: relative;
+    opacity: 0.75;
+}
+
+.output-content.stale-result-subtle::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg,
+        transparent,
+        var(--error-color) 50%,
+        transparent
+    );
+    opacity: 0.4;
+}
+
 /* History Dropdown */
 .history-dropdown {
     position: relative;
@@ -1052,6 +1108,18 @@ tr:hover {
     font-weight: normal;
     color: var(--text-tertiary);
     margin-left: 6px;
+}
+
+/* Auto-play Chip Indicator */
+.auto-play-chip {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 3px 8px;
+    background: var(--success-bg);
+    color: var(--success-color);
+    border: 1px solid var(--success-color);
+    border-radius: 3px;
+    margin-left: 8px;
 }
 
 /* Parse CSV Button */

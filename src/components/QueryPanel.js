@@ -1,7 +1,9 @@
 import { Storage } from '../utils/storage.js';
-import { filterFunctions, INPUT_TYPE_INFO } from '../core/jq-functions.js';
+import { filterFunctions, INPUT_TYPE_INFO, extractKeys, createKeyExtractionWorker, terminateKeyExtractionWorker } from '../core/jq-functions.js';
 import { handleTabKey } from '../utils/keyboard.js';
 import { jqEngine } from '../core/jq-engine.js';
+import { AutocompleteCache } from '../utils/autocomplete-cache.js';
+import { PipeAnalyzer } from '../utils/pipe-analyzer.js';
 
 const MAX_HISTORY = 100;
 
@@ -117,9 +119,126 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   let mouseMovementDetector = null;
   let initialMousePosition = null;
   const MOVEMENT_THRESHOLD = 5; // pixels
-  // Context cache for context-aware autocomplete
-  let contextCache = new Map(); // {queryHash: {type, keys}}
-  const CONTEXT_CACHE_SIZE = 50;
+
+  // Enhanced autocomplete cache
+  const autocompleteCache = new AutocompleteCache({
+    maxContextEntries: 100,
+    contextTTL: 60000 // 1 minute
+  });
+
+  // Worker management
+  let keyExtractionWorker = null;
+  let pendingExtractionId = 0;
+  const pendingExtractions = new Map();
+  let workerIdleTimer = null;
+  const WORKER_IDLE_TIMEOUT = 30000; // 30 seconds
+  let lastInputHash = null;
+  let updateDebounceTimer = null;
+  const UPDATE_DEBOUNCE_DELAY = 300; // ms
+
+  // Worker management functions
+  function initWorker() {
+    if (!keyExtractionWorker) {
+      try {
+        keyExtractionWorker = createKeyExtractionWorker();
+        keyExtractionWorker.onmessage = handleWorkerMessage;
+        keyExtractionWorker.onerror = (error) => {
+          console.warn('Key extraction worker error:', error);
+          terminateWorkerSafe();
+        };
+      } catch (error) {
+        console.warn('Failed to create worker, falling back to sync mode:', error);
+        keyExtractionWorker = null;
+      }
+    }
+    resetWorkerIdleTimer();
+  }
+
+  function resetWorkerIdleTimer() {
+    if (workerIdleTimer) {
+      clearTimeout(workerIdleTimer);
+    }
+    workerIdleTimer = setTimeout(() => {
+      terminateWorkerSafe();
+    }, WORKER_IDLE_TIMEOUT);
+  }
+
+  function terminateWorkerSafe() {
+    if (keyExtractionWorker) {
+      terminateKeyExtractionWorker(keyExtractionWorker);
+      keyExtractionWorker = null;
+    }
+    pendingExtractions.clear();
+    if (workerIdleTimer) {
+      clearTimeout(workerIdleTimer);
+      workerIdleTimer = null;
+    }
+  }
+
+  function handleWorkerMessage(e) {
+    const { type, id, keys, currentDepth, keysFound, stats, message } = e.data;
+    const pending = pendingExtractions.get(id);
+
+    if (!pending) return;
+
+    resetWorkerIdleTimer();
+
+    if (type === 'progress') {
+      // Progressive update
+      if (pending.onProgress && keys) {
+        pending.onProgress(keys, currentDepth, keysFound);
+      }
+    } else if (type === 'result') {
+      // Complete result
+      pending.resolve({ keys, stats });
+      pendingExtractions.delete(id);
+    } else if (type === 'error') {
+      pending.reject(new Error(message));
+      pendingExtractions.delete(id);
+    }
+  }
+
+  /**
+   * Request key extraction via Worker
+   * @param {string} jsonString - JSON input string
+   * @param {Object} options - Extraction options
+   * @returns {Promise<{keys: string[], stats: Object}>}
+   */
+  function requestKeyExtraction(jsonString, options = {}) {
+    return new Promise((resolve, reject) => {
+      initWorker();
+
+      if (!keyExtractionWorker) {
+        // Fallback to sync extraction using imported extractKeys
+        try {
+          const data = JSON.parse(jsonString);
+          const keys = extractKeys(data, options.maxDepth || 8);
+          resolve({ keys, stats: { depth: options.maxDepth || 8, keyCount: keys.length, timeMs: 0 } });
+        } catch (error) {
+          reject(error);
+        }
+        return;
+      }
+
+      const id = ++pendingExtractionId;
+
+      pendingExtractions.set(id, {
+        resolve,
+        reject,
+        onProgress: options.onProgress
+      });
+
+      keyExtractionWorker.postMessage({
+        type: 'extract',
+        id,
+        jsonString,
+        options: {
+          maxDepth: options.maxDepth || 8,
+          sampleSize: options.sampleSize || 5
+        }
+      });
+    });
+  }
 
   // Load query history asynchronously
   (async () => {
@@ -227,10 +346,10 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     if (pipeContext.hasPipe) {
       const currentQuery = pipeContext.queryBeforePipe;
       // Keep only current query's cache
-      const currentCache = contextCache.get(currentQuery);
-      contextCache.clear();
+      const currentCache = autocompleteCache.getContextKeys(currentQuery);
+      autocompleteCache.invalidateContext();
       if (currentCache) {
-        contextCache.set(currentQuery, currentCache);
+        autocompleteCache.setContextKeys(currentQuery, currentCache.keys, currentCache.type);
       }
     }
 
@@ -251,19 +370,24 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         renderAutocomplete();
         return;
       } else if (e.key === 'Tab' && autocompleteItems.length > 0) {
-        // Tab: Apply first item or selected item
+        // Tab: Cycle through items
         e.preventDefault();
-        const indexToApply = selectedAutocompleteIndex >= 0 ? selectedAutocompleteIndex : 0;
-        applyAutocomplete(autocompleteItems[indexToApply]);
+        if (e.shiftKey) {
+          // Shift+Tab: Previous item (cycle backward)
+          selectedAutocompleteIndex = selectedAutocompleteIndex <= 0
+            ? autocompleteItems.length - 1
+            : selectedAutocompleteIndex - 1;
+        } else {
+          // Tab: Next item (cycle forward)
+          selectedAutocompleteIndex = (selectedAutocompleteIndex + 1) % autocompleteItems.length;
+        }
+        renderAutocomplete();
         return;
       } else if (e.key === 'Enter' && selectedAutocompleteIndex >= 0) {
-        // Enter: Only apply if explicitly selected via arrow keys AND cursor is at word end
-        const { isCursorAtWordEnd } = getCurrentWord();
-        if (isCursorAtWordEnd) {
-          e.preventDefault();
-          applyAutocomplete(autocompleteItems[selectedAutocompleteIndex]);
-          return;
-        }
+        // Enter: Apply selected item
+        e.preventDefault();
+        applyAutocomplete(autocompleteItems[selectedAutocompleteIndex]);
+        return;
       } else if (e.key === 'Escape') {
         e.preventDefault();
         hideAutocomplete();
@@ -575,6 +699,30 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       savedQueries.unshift(savedQuery);
       Storage.saveSavedQueries(savedQueries);
       renderSavedQueries();
+    },
+
+    /**
+     * Terminate the key extraction worker
+     * Should be called on page unload
+     */
+    terminateWorker: () => {
+      terminateWorkerSafe();
+    },
+
+    /**
+     * Invalidate autocomplete cache
+     * Call when input data changes
+     */
+    invalidateCache: () => {
+      autocompleteCache.invalidate();
+      lastInputHash = null;
+    },
+
+    /**
+     * Get autocomplete cache stats for debugging
+     */
+    getCacheStats: () => {
+      return autocompleteCache.getStats();
     }
   };
 
@@ -730,6 +878,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
   /**
    * Get pipe context - finds the last pipe before cursor and returns previous query
+   * Also detects function contexts like map(., select(., etc.
    */
   function getPipeContext() {
     const text = textarea.value;
@@ -740,14 +889,109 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     const lastPipeIndex = textBeforeCursor.lastIndexOf('|');
 
     if (lastPipeIndex === -1) {
-      return { hasPipe: false, queryBeforePipe: '', textAfterPipe: textBeforeCursor };
+      return { hasPipe: false, queryBeforePipe: '', textAfterPipe: textBeforeCursor, isInsideFunction: false };
+    }
+
+    const afterPipe = text.substring(lastPipeIndex + 1, cursor).trim();
+
+    // Detect field access inside functions like map(., select(., sort_by(., etc.
+    const funcMatch = afterPipe.match(
+      /^(map|select|sort_by|group_by|unique_by|min_by|max_by|map_values|any|all|first|last)\s*\(\s*(\.[\w.[\]]*)?$/
+    );
+
+    if (funcMatch) {
+      return {
+        hasPipe: true,
+        queryBeforePipe: text.substring(0, lastPipeIndex).trim(),
+        textAfterPipe: funcMatch[2] || '.',
+        isInsideFunction: true,
+        functionName: funcMatch[1]
+      };
     }
 
     return {
       hasPipe: true,
       queryBeforePipe: text.substring(0, lastPipeIndex).trim(),
-      textAfterPipe: text.substring(lastPipeIndex + 1, cursor).trim()
+      textAfterPipe: afterPipe,
+      isInsideFunction: false
     };
+  }
+
+  /**
+   * Filter and sort keys based on search term and context
+   */
+  function filterAndSortKeys(allKeys, contextKeys, searchTerm, hasPrefix, prefix) {
+    const lowerSearchTerm = searchTerm.toLowerCase();
+
+    return allKeys
+      .filter(key => {
+        // If we have a prefix, only show keys that start with it
+        if (hasPrefix && prefix) {
+          if (!key.startsWith(prefix + '.')) return false;
+          const suffix = key.substring(prefix.length + 1);
+          const firstSegment = suffix.split('.')[0];
+          return firstSegment.toLowerCase().startsWith(lowerSearchTerm);
+        }
+
+        // No prefix: match against full path or last segment
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.startsWith(lowerSearchTerm)) return true;
+        const lastSegment = key.split('.').pop().toLowerCase();
+        return lastSegment.startsWith(lowerSearchTerm);
+      })
+      .map(key => {
+        // Strip prefix if applicable
+        let displayName = key;
+        if (hasPrefix && prefix && key.startsWith(prefix + '.')) {
+          displayName = key.substring(prefix.length + 1);
+        }
+
+        return {
+          originalKey: key,
+          name: displayName,
+          fullKey: key,
+          desc: contextKeys.includes(key) ? 'Context field' : 'Input field',
+          inputType: 'field'
+        };
+      })
+      .sort((a, b) => {
+        // Sort by display name
+        const aStartsWith = a.name.toLowerCase().startsWith(lowerSearchTerm);
+        const bStartsWith = b.name.toLowerCase().startsWith(lowerSearchTerm);
+        if (aStartsWith && !bStartsWith) return -1;
+        if (!aStartsWith && bStartsWith) return 1;
+
+        // Prioritize context keys
+        if (contextKeys.includes(a.fullKey) && !contextKeys.includes(b.fullKey)) return -1;
+        if (!contextKeys.includes(a.fullKey) && contextKeys.includes(b.fullKey)) return 1;
+
+        return a.name.localeCompare(b.name);
+      })
+      .slice(0, 10);
+  }
+
+  /**
+   * Render field autocomplete with given keys
+   */
+  function renderFieldAutocomplete(keys, contextKeys, searchTerm, hasPrefix, prefix) {
+    const matches = filterAndSortKeys(keys, contextKeys, searchTerm, hasPrefix, prefix);
+
+    if (matches.length === 0) {
+      hideAutocomplete();
+      return;
+    }
+
+    // Hide if exact single match
+    const exactMatch = matches.find(m => m.name.toLowerCase() === searchTerm.toLowerCase());
+    if (exactMatch && matches.length === 1) {
+      hideAutocomplete();
+      return;
+    }
+
+    autocompleteItems = matches;
+    selectedAutocompleteIndex = 0;
+    renderAutocomplete();
+    autocompleteList.classList.add('show');
   }
 
   async function updateAutocomplete() {
@@ -755,114 +999,143 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
     // Field access autocomplete (e.g., .foo, .bar)
     if (isFieldAccess && getInputKeys) {
-      const pipeContext = getPipeContext();
+      const { hasPrefix, prefix, currentSegment } = getFieldAccessContext();
+      const searchTerm = currentSegment || word;
+
+      // Get input data
+      const inputData = document.getElementById('input').value.trim();
+      if (!inputData) {
+        hideAutocomplete();
+        return;
+      }
+
+      const inputHash = AutocompleteCache.hashInput(inputData);
       let contextKeys = [];
+      let inputKeys = [];
 
-      // Check if we're after a pipe - use context-aware autocomplete
-      if (pipeContext.hasPipe && pipeContext.queryBeforePipe) {
-        const queryHash = pipeContext.queryBeforePipe;
+      // 1. Check for cached input keys - show immediately
+      const cachedInput = autocompleteCache.getInputKeys(inputHash);
+      if (cachedInput) {
+        inputKeys = cachedInput.keys;
 
-        // Check cache first
-        if (!contextCache.has(queryHash)) {
+        // Show cached results immediately while we fetch more
+        if (inputKeys.length > 0) {
+          renderFieldAutocomplete(inputKeys, [], searchTerm, hasPrefix, prefix);
+        }
+      }
+
+      // 2. If input hash changed, invalidate cache and request new extraction
+      if (lastInputHash !== inputHash) {
+        lastInputHash = inputHash;
+        autocompleteCache.invalidate();
+
+        // Debounce Worker requests
+        if (updateDebounceTimer) {
+          clearTimeout(updateDebounceTimer);
+        }
+
+        updateDebounceTimer = setTimeout(async () => {
           try {
-            const inputData = document.getElementById('input').value.trim();
-            if (inputData) {
-              const context = await jqEngine.executeForContext(inputData, pipeContext.queryBeforePipe);
+            // Request key extraction via Worker with progress updates
+            const result = await requestKeyExtraction(inputData, {
+              maxDepth: 8,
+              sampleSize: 5,
+              onProgress: (partialKeys, _currentDepth, _keysFound) => {
+                // Update cache with partial results
+                autocompleteCache.updateInputKeys(partialKeys, inputHash, true);
 
-              // Cache result
-              contextCache.set(queryHash, context);
-
-              // LRU cache cleanup
-              if (contextCache.size > CONTEXT_CACHE_SIZE) {
-                const firstKey = contextCache.keys().next().value;
-                contextCache.delete(firstKey);
+                // Re-render with new keys (without flickering)
+                const { word: currentWord, isFieldAccess: stillFieldAccess } = getCurrentWord();
+                if (stillFieldAccess) {
+                  const ctx = getFieldAccessContext();
+                  const term = ctx.currentSegment || currentWord;
+                  const allKeys = [...new Set([...partialKeys, ...contextKeys])];
+                  renderFieldAutocomplete(allKeys, contextKeys, term, ctx.hasPrefix, ctx.prefix);
+                }
               }
+            });
 
-              contextKeys = context.keys || [];
+            // Final update with complete results
+            autocompleteCache.setInputKeys(result.keys, inputHash, false);
+            inputKeys = result.keys;
+
+            // Merge with context keys and render
+            const finalKeys = [...new Set([...inputKeys, ...contextKeys])];
+            const { word: currentWord, isFieldAccess: stillFieldAccess } = getCurrentWord();
+            if (stillFieldAccess) {
+              const ctx = getFieldAccessContext();
+              const term = ctx.currentSegment || currentWord;
+              renderFieldAutocomplete(finalKeys, contextKeys, term, ctx.hasPrefix, ctx.prefix);
             }
           } catch (error) {
-            // Fallback to original behavior on error
-            console.debug('Context execution failed, using fallback', error);
+            console.debug('Worker extraction failed, using sync fallback:', error);
+            // Fallback to sync extraction
+            inputKeys = getInputKeys();
+            autocompleteCache.setInputKeys(inputKeys, inputHash, false);
           }
+        }, UPDATE_DEBOUNCE_DELAY);
+      }
+
+      // 3. Context-aware autocomplete using PipeAnalyzer
+      const analysis = PipeAnalyzer.analyze(textarea.value, textarea.selectionStart);
+
+      if (analysis.completedQuery) {
+        const cacheKey = analysis.completedQuery;
+
+        // Check context cache
+        const cachedContext = autocompleteCache.getContextKeys(cacheKey);
+        if (cachedContext) {
+          contextKeys = cachedContext.keys;
         } else {
-          contextKeys = contextCache.get(queryHash).keys || [];
+          // Execute context query with timeout
+          try {
+            const context = await jqEngine.executeForContextWithTimeout(
+              inputData,
+              analysis.completedQuery,
+              2000 // 2 second timeout
+            );
+
+            contextKeys = context.keys || [];
+            autocompleteCache.setContextKeys(cacheKey, contextKeys, context.type);
+          } catch (error) {
+            console.debug('Context execution failed or timed out:', error.message);
+            // Fallback to input keys on timeout/error
+            contextKeys = [];
+          }
         }
       }
 
-      // Merge context keys with input keys (prefer context keys)
-      const inputKeys = getInputKeys();
+      // 4. Extract field path from analysis for better matching
+      let effectiveSearchTerm = searchTerm;
+      let effectivePrefix = prefix;
+      let effectiveHasPrefix = hasPrefix;
+
+      // If inside a function like map(., use the fieldPath from analysis
+      if (analysis.isInsideFunction && analysis.fieldPath) {
+        const fieldPath = analysis.fieldPath.replace(/^\./, '');
+        const lastDotIndex = fieldPath.lastIndexOf('.');
+
+        if (lastDotIndex === -1) {
+          effectiveSearchTerm = fieldPath;
+          effectiveHasPrefix = false;
+          effectivePrefix = '';
+        } else {
+          effectivePrefix = fieldPath.substring(0, lastDotIndex);
+          effectiveSearchTerm = fieldPath.substring(lastDotIndex + 1);
+          effectiveHasPrefix = true;
+        }
+      }
+
+      // 5. Merge and render final results
       const allKeys = contextKeys.length > 0
-        ? [...contextKeys, ...inputKeys]
+        ? [...new Set([...contextKeys, ...inputKeys])]
         : inputKeys;
 
-      if (allKeys && allKeys.length > 0) {
-        // Get path context to detect and strip prefixes
-        const { hasPrefix, prefix, currentSegment } = getFieldAccessContext();
-        const searchTerm = currentSegment || word;
-        const lowerSearchTerm = searchTerm.toLowerCase();
-
-        const matches = allKeys
-          .filter(key => {
-            // If we have a prefix, only show keys that start with it
-            if (hasPrefix && prefix) {
-              if (!key.startsWith(prefix + '.')) return false;
-              const suffix = key.substring(prefix.length + 1);
-              const firstSegment = suffix.split('.')[0];
-              return firstSegment.toLowerCase().startsWith(lowerSearchTerm);
-            }
-
-            // No prefix: match against full path or last segment (existing logic)
-            const lowerKey = key.toLowerCase();
-            if (lowerKey.startsWith(lowerSearchTerm)) return true;
-            const lastSegment = key.split('.').pop().toLowerCase();
-            return lastSegment.startsWith(lowerSearchTerm);
-          })
-          .map(key => {
-            // Strip prefix if applicable
-            let displayName = key;
-            if (hasPrefix && prefix && key.startsWith(prefix + '.')) {
-              displayName = key.substring(prefix.length + 1);
-            }
-
-            return {
-              originalKey: key,      // Full path for reference
-              name: displayName,     // What to insert (suffix only)
-              fullKey: key,          // For context key detection in sorting
-              desc: contextKeys.includes(key) ? 'Context field' : 'Input field',
-              inputType: 'field'
-            };
-          })
-          .sort((a, b) => {
-            // Sort by display name
-            const aStartsWith = a.name.toLowerCase().startsWith(lowerSearchTerm);
-            const bStartsWith = b.name.toLowerCase().startsWith(lowerSearchTerm);
-            if (aStartsWith && !bStartsWith) return -1;
-            if (!aStartsWith && bStartsWith) return 1;
-
-            // Prioritize context keys
-            if (contextKeys.includes(a.fullKey) && !contextKeys.includes(b.fullKey)) return -1;
-            if (!contextKeys.includes(a.fullKey) && contextKeys.includes(b.fullKey)) return 1;
-
-            return a.name.localeCompare(b.name);
-          })
-          .slice(0, 10);
-
-        if (matches.length > 0) {
-          // Hide if exact match
-          const exactMatch = matches.find(m => m.name.toLowerCase() === searchTerm.toLowerCase());
-          if (exactMatch && matches.length === 1) {
-            hideAutocomplete();
-            return;
-          }
-
-          autocompleteItems = matches;
-          selectedAutocompleteIndex = -1;
-          renderAutocomplete();
-          autocompleteList.classList.add('show');
-          return;
-        }
+      if (allKeys.length > 0) {
+        renderFieldAutocomplete(allKeys, contextKeys, effectiveSearchTerm, effectiveHasPrefix, effectivePrefix);
+      } else {
+        hideAutocomplete();
       }
-      hideAutocomplete();
       return;
     }
 
@@ -879,7 +1152,6 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
 
     // Hide if user has typed past a complete exact match
-    // e.g., typing "selectx" when "select" was a match
     const exactMatch = matches.find(m => m.name.toLowerCase() === word.toLowerCase());
     if (exactMatch && matches.length === 1) {
       hideAutocomplete();
@@ -887,7 +1159,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
 
     autocompleteItems = matches;
-    selectedAutocompleteIndex = -1; // Reset to -1, user must explicitly select
+    selectedAutocompleteIndex = 0;
     renderAutocomplete();
     autocompleteList.classList.add('show');
   }

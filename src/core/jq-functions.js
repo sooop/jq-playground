@@ -214,7 +214,7 @@ export const INPUT_TYPE_INFO = {
 };
 
 // Extract keys from JSON data for autocomplete
-export function extractKeys(data, maxDepth = 3) {
+export function extractKeys(data, maxDepth = 8) {
   const keys = new Set();
 
   function traverse(obj, path, depth) {
@@ -222,7 +222,7 @@ export function extractKeys(data, maxDepth = 3) {
 
     if (Array.isArray(obj)) {
       // For arrays, traverse first few items to find common structure
-      const sampleSize = Math.min(obj.length, 3);
+      const sampleSize = Math.min(obj.length, 5);
       for (let i = 0; i < sampleSize; i++) {
         traverse(obj[i], path + '[]', depth);
       }
@@ -237,6 +237,125 @@ export function extractKeys(data, maxDepth = 3) {
 
   traverse(data, '', 0);
   return Array.from(keys);
+}
+
+/**
+ * Create an inline Web Worker for key extraction
+ * Uses Blob URL for single-file build compatibility
+ * @returns {Worker} Web Worker instance
+ */
+export function createKeyExtractionWorker() {
+  const workerCode = `
+    // Key extraction worker - BFS traversal with progress reporting
+    const MAX_DEPTH = 8;
+    const SAMPLE_SIZE = 5;
+    const PROGRESS_INTERVAL = 100; // ms
+
+    self.onmessage = function(e) {
+      const { type, id, jsonString, options = {} } = e.data;
+
+      if (type !== 'extract') return;
+
+      const maxDepth = options.maxDepth || MAX_DEPTH;
+      const sampleSize = options.sampleSize || SAMPLE_SIZE;
+      const startTime = performance.now();
+
+      try {
+        const data = JSON.parse(jsonString);
+        const keys = new Set();
+        let lastProgressTime = startTime;
+        let currentDepth = 0;
+
+        // BFS queue: [{obj, path, depth}]
+        const queue = [{ obj: data, path: '', depth: 0 }];
+
+        while (queue.length > 0) {
+          const { obj, path, depth } = queue.shift();
+
+          // Track max depth reached
+          if (depth > currentDepth) {
+            currentDepth = depth;
+
+            // Report progress periodically
+            const now = performance.now();
+            if (now - lastProgressTime > PROGRESS_INTERVAL) {
+              lastProgressTime = now;
+              self.postMessage({
+                type: 'progress',
+                id: id,
+                currentDepth: currentDepth,
+                keysFound: keys.size,
+                keys: Array.from(keys)
+              });
+            }
+          }
+
+          if (depth > maxDepth || obj === null || obj === undefined) continue;
+
+          if (Array.isArray(obj)) {
+            // Sample array elements
+            const len = Math.min(obj.length, sampleSize);
+            for (let i = 0; i < len; i++) {
+              if (obj[i] !== null && typeof obj[i] === 'object') {
+                queue.push({ obj: obj[i], path: path + '[]', depth: depth });
+              }
+            }
+          } else if (typeof obj === 'object') {
+            const objKeys = Object.keys(obj);
+            for (const key of objKeys) {
+              const newPath = path ? path + '.' + key : key;
+              keys.add(newPath);
+
+              const value = obj[key];
+              if (value !== null && typeof value === 'object') {
+                queue.push({ obj: value, path: newPath, depth: depth + 1 });
+              }
+            }
+          }
+        }
+
+        const endTime = performance.now();
+        self.postMessage({
+          type: 'result',
+          id: id,
+          keys: Array.from(keys),
+          stats: {
+            depth: currentDepth,
+            keyCount: keys.size,
+            timeMs: Math.round(endTime - startTime)
+          }
+        });
+      } catch (error) {
+        self.postMessage({
+          type: 'error',
+          id: id,
+          message: error.message
+        });
+      }
+    };
+  `;
+
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url);
+
+  // Store URL for cleanup
+  worker._blobUrl = url;
+
+  return worker;
+}
+
+/**
+ * Terminate worker and clean up blob URL
+ * @param {Worker} worker - Worker to terminate
+ */
+export function terminateKeyExtractionWorker(worker) {
+  if (worker) {
+    worker.terminate();
+    if (worker._blobUrl) {
+      URL.revokeObjectURL(worker._blobUrl);
+    }
+  }
 }
 
 export function filterFunctions(prefix) {

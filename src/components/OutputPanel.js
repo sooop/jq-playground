@@ -8,7 +8,7 @@ export function createOutputPanel() {
     <div class="panel-header">
       <span class="panel-title">Output <span id="lastRunTime" style="font-weight:normal;color:var(--text-tertiary);font-size:11px;margin-left:8px;"></span></span>
       <div class="panel-actions">
-        <button id="autoPlayBtn" class="auto-play-btn active" title="Toggle auto-execute (Ctrl+Shift+E)">▶</button>
+        <button id="autoPlayBtn" class="auto-play-btn active" title="Pause auto-execute (Ctrl+Shift+E)">⏸</button>
         <select id="formatSelect">
           <option value="json">JSON</option>
           <option value="csv">CSV</option>
@@ -29,6 +29,7 @@ export function createOutputPanel() {
     <div class="panel-content">
       <div class="output-content" id="output"></div>
     </div>
+    <div class="error-toast" id="errorToast"></div>
   `;
 
   const output = panel.querySelector('#output');
@@ -260,7 +261,7 @@ export function createOutputPanel() {
 
       // 에러 상태 및 stale 스타일 제거
       isInErrorState = false;
-      output.classList.remove('stale-result');
+      output.classList.remove('stale-result-subtle');
 
       const isArray = Array.isArray(data);
 
@@ -289,8 +290,9 @@ export function createOutputPanel() {
     },
 
     showError: (message, autoHideDuration = 5000) => {
-      errorBanner.textContent = message;
-      errorBanner.classList.add('show');
+      const errorToast = panel.querySelector('#errorToast');
+      errorToast.textContent = message;
+      errorToast.classList.add('show');
       isInErrorState = true;
 
       if (errorTimeout) clearTimeout(errorTimeout);
@@ -313,7 +315,7 @@ export function createOutputPanel() {
           output.innerHTML = jsonToHTML(lastResultData, isArray);
         }
 
-        output.classList.add('stale-result');
+        output.classList.add('stale-result-subtle');
 
         // stats bar에 "이전 결과" 표시 추가
         const prevLabel = '<span class="prev-result-label">이전 결과</span>';
@@ -325,8 +327,17 @@ export function createOutputPanel() {
 
     hideError: () => {
       if (errorTimeout) clearTimeout(errorTimeout);
+      const errorToast = panel.querySelector('#errorToast');
+      errorToast.classList.remove('show');
       errorBanner.classList.remove('show');
       isInErrorState = false;
+      output.classList.remove('stale-result-subtle');
+
+      // Remove prev-result-label from statsBar
+      const prevLabel = statsBar.querySelector('.prev-result-label');
+      if (prevLabel) {
+        prevLabel.remove();
+      }
     },
 
     getFormat: () => formatSelect.value,
@@ -338,7 +349,7 @@ export function createOutputPanel() {
       statsBar.innerHTML = '';
       statsBar.style.display = 'none';
       isInErrorState = false;
-      output.classList.remove('stale-result');
+      output.classList.remove('stale-result-subtle');
       api.hideError();
     },
 
@@ -348,11 +359,11 @@ export function createOutputPanel() {
       autoPlayEnabled = !autoPlayEnabled;
       if (autoPlayEnabled) {
         autoPlayBtn.classList.add('active');
-        autoPlayBtn.textContent = '▶';
+        autoPlayBtn.textContent = '⏸';
         autoPlayBtn.title = 'Pause auto-execute (Ctrl+Shift+E)';
       } else {
         autoPlayBtn.classList.remove('active');
-        autoPlayBtn.textContent = '⏸';
+        autoPlayBtn.textContent = '▶';
         autoPlayBtn.title = 'Resume auto-execute (Ctrl+Shift+E)';
       }
 

@@ -8,6 +8,8 @@ import { jqEngine } from './core/jq-engine.js';
 import { extractKeys } from './core/jq-functions.js';
 import { Storage } from './utils/storage.js';
 
+const RESIZE_STORAGE_KEY = 'jq-panel-resize';
+
 export class App {
   constructor() {
     this.debounceTimer = null;
@@ -57,6 +59,7 @@ export class App {
       if (enabled) {
         this.executeQuery();
       }
+      this.inputPanel.api.setAutoPlayIndicator(enabled);
     };
 
     this.modal = createSaveQueryModal((name, query) => {
@@ -102,6 +105,7 @@ export class App {
 
     // Initialize resizers
     this.initResizers(topPanel, main, hResizer, vResizer);
+    this.restorePanelSizes(topPanel, main);
 
     container.appendChild(header);
     container.appendChild(this.cheatsheet);
@@ -118,6 +122,9 @@ export class App {
       this.executeQuery();
     }
 
+    // Initialize auto-play chip indicator
+    this.inputPanel.api.setAutoPlayIndicator(this.outputPanel.api.isAutoPlayEnabled());
+
     // Format change listener - force execute even if paused
     this.outputPanel.querySelector('#formatSelect').addEventListener('change', () => {
       this.executeQuery(true);
@@ -133,9 +140,11 @@ export class App {
       }
     });
 
-    // Flush storage on page unload
+    // Flush storage and cleanup on page unload
     window.addEventListener('beforeunload', () => {
       Storage.flushAll();
+      // Terminate Worker to clean up resources
+      this.queryPanel.api.terminateWorker?.();
     });
   }
 
@@ -146,13 +155,42 @@ export class App {
 
   executeQuery(forceExecute = false) {
     clearTimeout(this.debounceTimer);
+
+    const input = this.inputPanel.querySelector('#input').value.trim();
+    const inputSize = new Blob([input]).size;
+
+    const SIZE_1MB = 1024 * 1024;
+    const SIZE_100KB = 100 * 1024;
+
+    // Dynamic debounce based on input size
+    let debounceDelay;
+    if (inputSize > SIZE_1MB) {
+      debounceDelay = 1000;
+    } else if (inputSize > SIZE_100KB) {
+      debounceDelay = 500;
+    } else {
+      debounceDelay = 300;
+    }
+
     this.debounceTimer = setTimeout(async () => {
       // Check auto-play status unless force execute
       if (!forceExecute && !this.outputPanel.api.isAutoPlayEnabled()) {
         return;
       }
 
-      const input = this.inputPanel.querySelector('#input').value.trim();
+      // Disable auto-execute if input exceeds 1MB (unless forced)
+      if (inputSize > SIZE_1MB && !forceExecute) {
+        if (this.outputPanel.api.isAutoPlayEnabled()) {
+          this.outputPanel.api.toggleAutoPlay();
+          this.inputPanel.api.setAutoPlayIndicator(false);
+          this.outputPanel.api.showError(
+            '자동실행 비활성화: 입력 크기가 1MB를 초과합니다. 수동 실행 버튼을 사용하세요.',
+            false
+          );
+        }
+        return;
+      }
+
       const query = this.queryPanel.api.getQuery();
       const format = this.outputPanel.api.getFormat();
 
@@ -175,7 +213,7 @@ export class App {
       } catch (error) {
         this.outputPanel.api.showError(error.message);
       }
-    }, 500);
+    }, debounceDelay);
   }
 
   initResizers(topPanel, main, hResizer, vResizer) {
@@ -214,10 +252,51 @@ export class App {
     });
 
     document.addEventListener('mouseup', () => {
+      if (isResizingH || isResizingV) {
+        this.savePanelSizes(topPanel, main);
+      }
       isResizingH = false;
       isResizingV = false;
       document.body.style.cursor = '';
     });
+  }
+
+  savePanelSizes(topPanel, main) {
+    try {
+      const hColumns = topPanel.style.gridTemplateColumns;
+      const vRows = main.style.gridTemplateRows;
+
+      const hMatch = hColumns.match(/^([\d.]+)%/);
+      const vMatch = vRows.match(/^([\d.]+)%/);
+
+      const sizes = {
+        horizontal: hMatch ? parseFloat(hMatch[1]) : 50,
+        vertical: vMatch ? parseFloat(vMatch[1]) : 50
+      };
+
+      localStorage.setItem(RESIZE_STORAGE_KEY, JSON.stringify(sizes));
+    } catch (e) {
+      console.error('Failed to save panel sizes:', e);
+    }
+  }
+
+  restorePanelSizes(topPanel, main) {
+    try {
+      const saved = localStorage.getItem(RESIZE_STORAGE_KEY);
+      if (saved) {
+        const { horizontal, vertical } = JSON.parse(saved);
+
+        if (horizontal && horizontal >= 20 && horizontal <= 80) {
+          topPanel.style.gridTemplateColumns = `${horizontal}% 4px ${100 - horizontal}%`;
+        }
+
+        if (vertical && vertical >= 20 && vertical <= 80) {
+          main.style.gridTemplateRows = `${vertical}% 4px ${100 - vertical}%`;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to restore panel sizes:', e);
+    }
   }
 
   getInputKeys() {
