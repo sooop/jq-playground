@@ -804,16 +804,16 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     const text = textarea.value;
     const cursor = textarea.selectionStart;
 
-    // Find the start of the current word
+    // Find the start of the current word (include $ for variables)
     let start = cursor - 1;
-    while (start >= 0 && /[a-zA-Z0-9_@]/.test(text[start])) {
+    while (start >= 0 && /[a-zA-Z0-9_@$]/.test(text[start])) {
       start--;
     }
     start++;
 
     // Find the end of the current word
     let end = cursor;
-    while (end < text.length && /[a-zA-Z0-9_@]/.test(text[end])) {
+    while (end < text.length && /[a-zA-Z0-9_@$]/.test(text[end])) {
       end++;
     }
 
@@ -997,10 +997,63 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   async function updateAutocomplete() {
     const { word, isFieldAccess } = getCurrentWord();
 
-    // Field access autocomplete (e.g., .foo, .bar)
-    if (isFieldAccess && getInputKeys) {
-      const { hasPrefix, prefix, currentSegment } = getFieldAccessContext();
-      const searchTerm = currentSegment || word;
+    // Variable autocomplete: when word starts with $
+    if (word.startsWith('$')) {
+      const variables = PipeAnalyzer.extractVariables(
+        textarea.value,
+        textarea.selectionStart
+      );
+      const searchTerm = word.substring(1).toLowerCase(); // Remove $ for matching
+
+      const matches = variables
+        .filter(v => v.substring(1).toLowerCase().startsWith(searchTerm))
+        .map(v => ({
+          name: v,
+          desc: v === '$ENV' ? 'Environment variables' :
+                v === '$__loc__' ? 'Source location' : 'User variable',
+          inputType: 'variable'
+        }));
+
+      if (matches.length > 0) {
+        // Hide if exact single match
+        const exactMatch = matches.find(m => m.name.toLowerCase() === word.toLowerCase());
+        if (exactMatch && matches.length === 1) {
+          hideAutocomplete();
+          return;
+        }
+
+        autocompleteItems = matches;
+        selectedAutocompleteIndex = 0;
+        renderAutocomplete();
+        autocompleteList.classList.add('show');
+      } else {
+        hideAutocomplete();
+      }
+      return;
+    }
+
+    // Pre-analyze for object construction to check if we need field autocomplete
+    const preAnalysis = PipeAnalyzer.analyze(textarea.value, textarea.selectionStart);
+    const needsFieldAutocomplete = isFieldAccess ||
+      (preAnalysis.isInsideObjectConstruction && (preAnalysis.isShorthandPosition || preAnalysis.isAfterColon));
+
+    // Field access autocomplete (e.g., .foo, .bar, or {name shorthand)
+    if (needsFieldAutocomplete && getInputKeys) {
+      // Compute initial search parameters based on context
+      let searchTerm, hasPrefix, prefix;
+
+      if (preAnalysis.isInsideObjectConstruction && preAnalysis.isShorthandPosition) {
+        // For shorthand, use the incomplete field directly (no '.' prefix)
+        searchTerm = preAnalysis.incompleteField || '';
+        hasPrefix = false;
+        prefix = '';
+      } else {
+        // For normal field access, use getFieldAccessContext
+        const fieldContext = getFieldAccessContext();
+        hasPrefix = fieldContext.hasPrefix;
+        prefix = fieldContext.prefix;
+        searchTerm = fieldContext.currentSegment || word;
+      }
 
       // Get input data
       const inputData = document.getElementById('input').value.trim();
@@ -1076,11 +1129,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         }, UPDATE_DEBOUNCE_DELAY);
       }
 
-      // 3. Context-aware autocomplete using PipeAnalyzer
-      const analysis = PipeAnalyzer.analyze(textarea.value, textarea.selectionStart);
+      // 3. Context-aware autocomplete using PipeAnalyzer (reuse preAnalysis)
+      const analysis = preAnalysis;
 
-      if (analysis.completedQuery) {
-        const cacheKey = analysis.completedQuery;
+      // Use effectiveContextQuery for context (handles 'as $var' bindings correctly)
+      const contextQuery = analysis.effectiveContextQuery || analysis.completedQuery;
+
+      if (contextQuery) {
+        const cacheKey = contextQuery;
 
         // Check context cache
         const cachedContext = autocompleteCache.getContextKeys(cacheKey);
@@ -1091,7 +1147,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
           try {
             const context = await jqEngine.executeForContextWithTimeout(
               inputData,
-              analysis.completedQuery,
+              contextQuery,
               2000 // 2 second timeout
             );
 
@@ -1109,9 +1165,25 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       let effectiveSearchTerm = searchTerm;
       let effectivePrefix = prefix;
       let effectiveHasPrefix = hasPrefix;
+      let isShorthandField = false;
 
+      // Handle object construction shorthand (e.g., {name, age})
+      if (analysis.isInsideObjectConstruction) {
+        if (analysis.isShorthandPosition) {
+          // Shorthand position: {name, a| - suggest field names without '.'
+          isShorthandField = true;
+          effectiveSearchTerm = analysis.incompleteField || '';
+          effectiveHasPrefix = false;
+          effectivePrefix = '';
+        } else if (analysis.isAfterColon) {
+          // After colon: {key: .field| - normal field access
+          effectiveSearchTerm = analysis.incompleteField || '';
+          effectiveHasPrefix = false;
+          effectivePrefix = '';
+        }
+      }
       // If inside a function like map(., use the fieldPath from analysis
-      if (analysis.isInsideFunction && analysis.fieldPath) {
+      else if (analysis.isInsideFunction && analysis.fieldPath) {
         const fieldPath = analysis.fieldPath.replace(/^\./, '');
         const lastDotIndex = fieldPath.lastIndexOf('.');
 

@@ -211,6 +211,7 @@ export const INPUT_TYPE_INFO = {
   'array|object': { label: 'array|obj', color: '#6366f1' },
   'array|string': { label: 'arr|str', color: '#0891b2' },
   'field': { label: 'field', color: '#f59e0b' },
+  'variable': { label: 'var', color: '#e879f9' },
 };
 
 // Extract keys from JSON data for autocomplete
