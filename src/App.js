@@ -159,14 +159,14 @@ export class App {
     const input = this.inputPanel.querySelector('#input').value.trim();
     const inputSize = new Blob([input]).size;
 
-    const SIZE_1MB = 1024 * 1024;
-    const SIZE_100KB = 100 * 1024;
+    const SIZE_3MB = 3 * 1024 * 1024;
+    const SIZE_500KB = 500 * 1024;
 
     // Dynamic debounce based on input size
     let debounceDelay;
-    if (inputSize > SIZE_1MB) {
+    if (inputSize > SIZE_3MB) {
       debounceDelay = 1000;
-    } else if (inputSize > SIZE_100KB) {
+    } else if (inputSize > SIZE_500KB) {
       debounceDelay = 500;
     } else {
       debounceDelay = 300;
@@ -178,13 +178,13 @@ export class App {
         return;
       }
 
-      // Disable auto-execute if input exceeds 1MB (unless forced)
-      if (inputSize > SIZE_1MB && !forceExecute) {
+      // Disable auto-execute if input exceeds 3MB (unless forced)
+      if (inputSize > SIZE_3MB && !forceExecute) {
         if (this.outputPanel.api.isAutoPlayEnabled()) {
           this.outputPanel.api.toggleAutoPlay();
           this.inputPanel.api.setAutoPlayIndicator(false);
           this.outputPanel.api.showError(
-            '자동실행 비활성화: 입력 크기가 1MB를 초과합니다. 수동 실행 버튼을 사용하세요.',
+            '자동실행 비활성화: 입력 크기가 3MB를 초과합니다. 수동 실행 버튼을 사용하세요.',
             false
           );
         }

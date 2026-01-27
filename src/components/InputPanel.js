@@ -238,10 +238,10 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
 
     // Show size warning
     const size = new Blob([textarea.value]).size;
-    if (size > 800 * 1024) {  // 800KB warning
+    if (size > 2.5 * 1024 * 1024) {  // 2.5MB warning
       formatLabel.textContent = `(${(size / 1024 / 1024).toFixed(1)}MB - 자동실행 제한 임박)`;
       formatLabel.style.color = 'var(--error-color)';
-    } else if (size > 100 * 1024) {
+    } else if (size > 500 * 1024) {
       formatLabel.textContent = `(${(size / 1024).toFixed(0)}KB)`;
       formatLabel.style.color = 'var(--text-tertiary)';
     } else if (formatLabel.textContent.includes('KB') || formatLabel.textContent.includes('MB')) {
