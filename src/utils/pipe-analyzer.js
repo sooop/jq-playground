@@ -229,9 +229,9 @@ export class PipeAnalyzer {
    */
   static analyzeFunctionContext(segment) {
     // Match functions that operate on each element: map(.field), select(.field), sort_by(.field), etc.
-    // Pattern: function_name( followed by optional whitespace, then a field path starting with .
+    // Pattern: function_name( followed by optional whitespace, then a field path or object construction
     const funcMatch = segment.match(
-      /^(map|select|sort_by|group_by|unique_by|min_by|max_by|map_values|any|all|first|last|until|while|recurse_down)\s*\(\s*(\.[\w.[\]]*)?$/
+      /^(map|select|sort_by|group_by|unique_by|min_by|max_by|map_values|any|all|first|last|until|while|recurse_down)\s*\(\s*([.{].*)?$/
     );
 
     if (funcMatch) {
@@ -244,7 +244,7 @@ export class PipeAnalyzer {
 
     // Check for nested function calls like: map(select(.field
     const nestedMatch = segment.match(
-      /(?:map|select|sort_by|group_by|unique_by|min_by|max_by|map_values)\s*\([^)]*(?:map|select|sort_by|group_by|unique_by|min_by|max_by|map_values)\s*\(\s*(\.[\w.[\]]*)?$/
+      /(?:map|select|sort_by|group_by|unique_by|min_by|max_by|map_values)\s*\([^)]*(?:map|select|sort_by|group_by|unique_by|min_by|max_by|map_values)\s*\(\s*([.{].*)?$/
     );
 
     if (nestedMatch) {

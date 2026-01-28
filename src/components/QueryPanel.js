@@ -1,5 +1,5 @@
 import { Storage } from '../utils/storage.js';
-import { filterFunctions, INPUT_TYPE_INFO, extractKeys, createKeyExtractionWorker, terminateKeyExtractionWorker } from '../core/jq-functions.js';
+import { filterFunctions, INPUT_TYPE_INFO, extractKeys, createKeyExtractionWorker, terminateKeyExtractionWorker, getFunctionInputType } from '../core/jq-functions.js';
 import { handleTabKey } from '../utils/keyboard.js';
 import { jqEngine } from '../core/jq-engine.js';
 import { AutocompleteCache } from '../utils/autocomplete-cache.js';
@@ -834,6 +834,67 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   }
 
   /**
+   * 함수별 기본 맥락 쿼리 반환 (타입 인식)
+   * 입력 데이터 타입과 함수 기대 타입을 매칭
+   */
+  function getFallbackContextQuery(analysis, inputData) {
+    if (!analysis.isInsideFunction || !analysis.isInsideObjectConstruction) {
+      return '';
+    }
+
+    // 입력 데이터 타입 확인
+    let actualInputType = 'any';
+    try {
+      const parsed = JSON.parse(inputData);
+      if (Array.isArray(parsed)) {
+        actualInputType = 'array';
+      } else if (typeof parsed === 'object' && parsed !== null) {
+        actualInputType = 'object';
+      }
+    } catch (e) {
+      return '';
+    }
+
+    // 함수 기대 타입 조회
+    const expectedType = getFunctionInputType(analysis.functionName);
+
+    // 타입 매칭에 따른 fallback
+    if (expectedType === 'array' && actualInputType === 'array') {
+      return '.[]';  // 배열 → 요소 맥락
+    }
+
+    if (expectedType === 'object' && actualInputType === 'object') {
+      return '.';  // 객체 → 그대로
+    }
+
+    if (expectedType === 'item') {
+      // select 등: 단일 항목에 적용되는 함수
+      // 입력이 배열이면 .[] 필요, 아니면 타입 미스매치
+      return actualInputType === 'array' ? '.[]' : '';
+    }
+
+    if (expectedType === 'array|object') {
+      // .[], keys 등: 배열이나 객체 모두 받음
+      if (actualInputType === 'array') {
+        return '.[]';
+      } else if (actualInputType === 'object') {
+        return '.';
+      }
+    }
+
+    if (expectedType === 'any') {
+      // 타입 제약 없음 - 기본 동작
+      if (actualInputType === 'array') {
+        return '.[]';
+      } else if (actualInputType === 'object') {
+        return '.';
+      }
+    }
+
+    return '';  // 타입 미스매치
+  }
+
+  /**
    * Get field access context - extracts the complete field access path to identify prefix
    * Examples:
    *   ".users" -> {hasPrefix: false, prefix: '', currentSegment: 'users'}
@@ -896,7 +957,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
     // Detect field access inside functions like map(., select(., sort_by(., etc.
     const funcMatch = afterPipe.match(
-      /^(map|select|sort_by|group_by|unique_by|min_by|max_by|map_values|any|all|first|last)\s*\(\s*(\.[\w.[\]]*)?$/
+      /^(map|select|sort_by|group_by|unique_by|min_by|max_by|map_values|any|all|first|last)\s*\(\s*([.{].*)?$/
     );
 
     if (funcMatch) {
@@ -1133,7 +1194,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       const analysis = preAnalysis;
 
       // Use effectiveContextQuery for context (handles 'as $var' bindings correctly)
-      const contextQuery = analysis.effectiveContextQuery || analysis.completedQuery;
+      let contextQuery = analysis.effectiveContextQuery || analysis.completedQuery;
+
+      if (!contextQuery && analysis.isInsideFunction && analysis.isInsideObjectConstruction) {
+        contextQuery = getFallbackContextQuery(analysis, inputData);
+      }
 
       if (contextQuery) {
         const cacheKey = contextQuery;

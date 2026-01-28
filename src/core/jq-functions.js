@@ -218,25 +218,26 @@ export const INPUT_TYPE_INFO = {
 export function extractKeys(data, maxDepth = 8) {
   const keys = new Set();
 
-  function traverse(obj, path, depth) {
+  function traverse(obj, path, depth, isRoot = false) {
     if (depth > maxDepth || obj === null || obj === undefined) return;
 
     if (Array.isArray(obj)) {
       // For arrays, traverse first few items to find common structure
       const sampleSize = Math.min(obj.length, 5);
       for (let i = 0; i < sampleSize; i++) {
-        traverse(obj[i], path + '[]', depth);
+        // Skip [] prefix for root-level arrays to match context keys
+        traverse(obj[i], isRoot ? path : path + '[]', depth, false);
       }
     } else if (typeof obj === 'object') {
       for (const key of Object.keys(obj)) {
         const newPath = path ? `${path}.${key}` : key;
         keys.add(newPath);
-        traverse(obj[key], newPath, depth + 1);
+        traverse(obj[key], newPath, depth + 1, false);
       }
     }
   }
 
-  traverse(data, '', 0);
+  traverse(data, '', 0, true);
   return Array.from(keys);
 }
 
@@ -357,6 +358,16 @@ export function terminateKeyExtractionWorker(worker) {
       URL.revokeObjectURL(worker._blobUrl);
     }
   }
+}
+
+/**
+ * Get the expected input type for a function
+ * @param {string} functionName - Name of the jq function
+ * @returns {string} Input type ('any', 'array', 'object', 'item', etc.)
+ */
+export function getFunctionInputType(functionName) {
+  const func = JQ_FUNCTIONS.find(f => f.name === functionName);
+  return func?.inputType || 'any';
 }
 
 export function filterFunctions(prefix) {
