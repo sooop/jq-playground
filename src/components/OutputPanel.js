@@ -317,9 +317,11 @@ export function createOutputPanel() {
 
         output.classList.add('stale-result-subtle');
 
-        // stats bar에 "이전 결과" 표시 추가
-        const prevLabel = '<span class="prev-result-label">이전 결과</span>';
-        statsBar.innerHTML = prevLabel + statsBar.innerHTML;
+        // stats bar에 "이전 결과" 표시 추가 (중복 방지)
+        if (!statsBar.querySelector('.prev-result-label')) {
+          const prevLabel = '<span class="prev-result-label">이전 결과</span>';
+          statsBar.innerHTML = prevLabel + statsBar.innerHTML;
+        }
       } else {
         output.textContent = '';
       }
