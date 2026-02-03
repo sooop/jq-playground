@@ -109,14 +109,14 @@ export class Storage {
   // ==================== INPUT HISTORY ====================
 
   /**
-   * Format content for storage (minify JSON, trim text)
+   * Format content for storage (format JSON with indentation, trim text)
    * @param {string} content - Raw content
    * @returns {string} Formatted content
    */
   static _formatContent(content) {
     try {
       const parsed = JSON.parse(content);
-      return JSON.stringify(parsed); // Minified JSON
+      return JSON.stringify(parsed, null, 2); // Formatted JSON with 2-space indentation
     } catch {
       return content.trim(); // Plain text: trim only
     }
@@ -221,6 +221,36 @@ export class Storage {
     } catch (error) {
       console.error('Failed to load last input:', error);
       return null;
+    }
+  }
+
+  /**
+   * Update input history content (preserves timestamp)
+   * @param {number} id - Entry ID
+   * @param {string} newContent - New content
+   */
+  static async updateInputHistoryContent(id, newContent) {
+    const formattedContent = this._formatContent(newContent);
+
+    try {
+      if (useIndexedDB && idb) {
+        await idb.update('input-history', id, {
+          content: formattedContent,
+          size: new Blob([formattedContent]).size,
+          lastUsed: new Date().toISOString()
+        });
+      } else {
+        const history = Storage._getInputHistoryFromLocalStorage();
+        const item = history.find(h => h.id === id);
+        if (item) {
+          item.content = formattedContent;
+          item.size = new Blob([formattedContent]).size;
+          item.lastUsed = new Date().toISOString();
+          localStorage.setItem(STORAGE_KEYS.INPUT_HISTORY, JSON.stringify(history));
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update input history content:', error);
     }
   }
 

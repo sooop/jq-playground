@@ -2,6 +2,7 @@ import { readFile } from '../core/file-handler.js';
 import { handleTabKey } from '../utils/keyboard.js';
 import { Storage } from '../utils/storage.js';
 import { csvToJson, detectDelimiter } from '../core/csv-parser.js';
+import { extractJson, needsJsonExtraction, tryFormatJson } from '../utils/json-extractor.js';
 
 export function createInputPanel(onInputChange, onExecuteQuery) {
   const panel = document.createElement('div');
@@ -143,13 +144,20 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
 
         const historyItem = items.find(h => h.id === id);
         if (historyItem) {
-          textarea.value = historyItem.content;
+          // 자동 포맷팅 적용
+          const formattedContent = tryFormatJson(historyItem.content);
+          textarea.value = formattedContent;
           currentFileName = historyItem.fileName;
           onInputChange();
           historyDropdown.style.display = 'none';
 
-          // Update lastUsed
-          await Storage.saveInputHistory(historyItem.content, historyItem.fileName);
+          // Content가 변경되었으면 DB 업데이트 (timestamp 유지)
+          if (formattedContent !== historyItem.content) {
+            await Storage.updateInputHistoryContent(id, formattedContent);
+          } else {
+            // 변경 없으면 lastUsed만 업데이트
+            await Storage.saveInputHistory(formattedContent, historyItem.fileName);
+          }
         }
       });
     });
@@ -227,7 +235,21 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
       onInputChange();
       autoSaveInput();
     } catch (error) {
-      alert('Invalid JSON: ' + error.message);
+      // JSON 파싱 실패 시 추출 시도
+      if (needsJsonExtraction(value)) {
+        if (confirm('유효하지 않은 JSON입니다. JSON 객체를 추출하시겠습니까?')) {
+          const extracted = extractJson(value);
+          if (extracted) {
+            textarea.value = extracted;
+            onInputChange();
+            autoSaveInput();
+          } else {
+            alert('유효한 JSON 객체를 찾을 수 없습니다.');
+          }
+        }
+      } else {
+        alert('Invalid JSON: ' + error.message);
+      }
     }
   };
 
@@ -254,10 +276,35 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   textarea.addEventListener('paste', (e) => {
     setTimeout(() => {
       const text = textarea.value;
+      const size = new Blob([text]).size;
+      const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
+
       if (isCsvLike(text)) {
         parseCsvBtn.style.display = 'inline-block';
+      } else if (needsJsonExtraction(text)) {
+        parseCsvBtn.style.display = 'none';
+
+        // 크기가 작으면 자동 실행, 크면 확인
+        const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
+          confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
+
+        if (shouldExtract) {
+          const extracted = extractJson(text);
+          if (extracted) {
+            textarea.value = extracted;
+            onInputChange();
+          } else if (size > AUTO_EXTRACT_SIZE) {
+            alert('유효한 JSON 객체를 찾을 수 없습니다.');
+          }
+        }
       } else {
         parseCsvBtn.style.display = 'none';
+        // 유효한 JSON이면 자동 포맷팅
+        const formatted = tryFormatJson(text);
+        if (formatted !== text) {
+          textarea.value = formatted;
+          onInputChange();
+        }
       }
     }, 10);
   });
@@ -316,6 +363,8 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     try {
       let content = await readFile(file);
       const ext = file.name.split('.').pop().toLowerCase();
+      const size = new Blob([content]).size;
+      const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
 
       // Auto-convert CSV/TSV to JSON
       if (ext === 'csv' || ext === 'tsv') {
@@ -331,12 +380,30 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
       } else {
         currentFileName = file.name;
         updateFormatLabel(null);
+
+        // JSON 추출 시도
+        if (needsJsonExtraction(content)) {
+          const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
+            confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
+
+          if (shouldExtract) {
+            const extracted = extractJson(content);
+            if (extracted) {
+              content = extracted;
+            } else if (size > AUTO_EXTRACT_SIZE) {
+              alert('유효한 JSON 객체를 찾을 수 없습니다.');
+            }
+          }
+        } else {
+          // 유효한 JSON이면 자동 포맷팅
+          content = tryFormatJson(content);
+        }
       }
 
       textarea.value = content;
       onInputChange();
 
-      // Immediately save file loads
+      // Immediately save file loads (포맷팅된 데이터 저장)
       await Storage.saveInputHistory(content, currentFileName);
     } catch (error) {
       alert(error.message);
@@ -424,6 +491,8 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     try {
       let content = await readFile(file);
       const ext = file.name.split('.').pop().toLowerCase();
+      const size = new Blob([content]).size;
+      const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
 
       // Auto-convert CSV/TSV to JSON
       if (ext === 'csv' || ext === 'tsv') {
@@ -439,12 +508,30 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
       } else {
         currentFileName = file.name;
         updateFormatLabel(null);
+
+        // JSON 추출 시도
+        if (needsJsonExtraction(content)) {
+          const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
+            confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
+
+          if (shouldExtract) {
+            const extracted = extractJson(content);
+            if (extracted) {
+              content = extracted;
+            } else if (size > AUTO_EXTRACT_SIZE) {
+              alert('유효한 JSON 객체를 찾을 수 없습니다.');
+            }
+          }
+        } else {
+          // 유효한 JSON이면 자동 포맷팅
+          content = tryFormatJson(content);
+        }
       }
 
       textarea.value = content;
       onInputChange();
 
-      // Immediately save file drops
+      // Immediately save file drops (포맷팅된 데이터 저장)
       await Storage.saveInputHistory(content, currentFileName);
     } catch (error) {
       alert(error.message);

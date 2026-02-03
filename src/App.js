@@ -7,6 +7,7 @@ import { createCheatsheet } from './components/Cheatsheet.js';
 import { jqEngine } from './core/jq-engine.js';
 import { extractKeys } from './core/jq-functions.js';
 import { Storage } from './utils/storage.js';
+import { tryFormatJson } from './utils/json-extractor.js';
 
 const RESIZE_STORAGE_KEY = 'jq-panel-resize';
 
@@ -118,7 +119,15 @@ export class App {
     // Restore last input from history
     const lastInput = await Storage.getLastInput();
     if (lastInput?.content) {
-      this.inputPanel.api.restoreInput(lastInput.content, lastInput.fileName);
+      // 자동 포맷팅 적용
+      const formattedContent = tryFormatJson(lastInput.content);
+      this.inputPanel.api.restoreInput(formattedContent, lastInput.fileName);
+
+      // Content가 변경되었으면 DB 업데이트 (timestamp 유지)
+      if (formattedContent !== lastInput.content) {
+        await Storage.updateInputHistoryContent(lastInput.id, formattedContent);
+      }
+
       this.executeQuery();
     }
 
