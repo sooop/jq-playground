@@ -114,6 +114,11 @@ export class Storage {
    * @returns {string} Formatted content
    */
   static _formatContent(content) {
+    const LARGE_THRESHOLD = 1 * 1024 * 1024; // 1MB
+    // content.length is a fast approximation of byte size for ASCII/JSON
+    if (content.length > LARGE_THRESHOLD) {
+      return content.trim();
+    }
     try {
       const parsed = JSON.parse(content);
       return JSON.stringify(parsed, null, 2); // Formatted JSON with 2-space indentation

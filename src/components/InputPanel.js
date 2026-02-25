@@ -41,6 +41,9 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   // Debounce timer for auto-save
   let saveDebounceTimer = null;
 
+  // Auto-format state (disabled automatically for large pastes)
+  let autoFormatEnabled = true;
+
   // Create history dropdown
   const historyDropdown = document.createElement('div');
   historyDropdown.className = 'dropdown input-history-dropdown';
@@ -144,19 +147,21 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
 
         const historyItem = items.find(h => h.id === id);
         if (historyItem) {
-          // 자동 포맷팅 적용
-          const formattedContent = tryFormatJson(historyItem.content);
-          textarea.value = formattedContent;
+          // autoFormatEnabled 상태에 따라 포맷팅 여부 결정 (대용량 블로킹 방지)
+          const content = autoFormatEnabled
+            ? tryFormatJson(historyItem.content)
+            : historyItem.content;
+          textarea.value = content;
           currentFileName = historyItem.fileName;
           onInputChange();
           historyDropdown.style.display = 'none';
 
           // Content가 변경되었으면 DB 업데이트 (timestamp 유지)
-          if (formattedContent !== historyItem.content) {
-            await Storage.updateInputHistoryContent(id, formattedContent);
+          if (autoFormatEnabled && content !== historyItem.content) {
+            await Storage.updateInputHistoryContent(id, content);
           } else {
-            // 변경 없으면 lastUsed만 업데이트
-            await Storage.saveInputHistory(formattedContent, historyItem.fileName);
+            // 변경 없거나 포맷 꺼짐 시 lastUsed만 업데이트
+            await Storage.saveInputHistory(historyItem.content, historyItem.fileName);
           }
         }
       });
@@ -194,6 +199,19 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }
   };
 
+  // Update auto-format indicator in the format label
+  const updateAutoFormatIndicator = () => {
+    if (!autoFormatEnabled) {
+      formatLabel.textContent = '자동 포맷 꺼짐';
+      formatLabel.style.color = '#aaa';
+    } else {
+      if (formatLabel.textContent === '자동 포맷 꺼짐') {
+        formatLabel.textContent = '';
+        formatLabel.style.color = '';
+      }
+    }
+  };
+
   // Detect if text looks like CSV
   const isCsvLike = (text) => {
     // Check if valid JSON first
@@ -224,14 +242,27 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }
   };
 
-  // Format JSON function
-  const formatJson = () => {
+  // Run JSON.parse + JSON.stringify in a Worker so the main thread stays responsive
+  const formatJsonInWorker = (jsonString) => {
+    return new Promise((resolve, reject) => {
+      const code = `self.onmessage=function(e){try{self.postMessage({ok:JSON.stringify(JSON.parse(e.data),null,4)})}catch(err){self.postMessage({err:err.message})}};`;
+      const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+      worker.onmessage = (e) => {
+        worker.terminate();
+        e.data.err ? reject(new Error(e.data.err)) : resolve(e.data.ok);
+      };
+      worker.postMessage(jsonString);
+    });
+  };
+
+  // Format JSON function (async — parse+stringify run off the main thread)
+  const formatJson = async () => {
     const value = textarea.value.trim();
     if (!value) return;
 
     try {
-      const parsed = JSON.parse(value);
-      textarea.value = JSON.stringify(parsed, null, 4);
+      const formatted = await formatJsonInWorker(value);
+      textarea.value = formatted;
       onInputChange();
       autoSaveInput();
     } catch (error) {
@@ -258,8 +289,8 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     onInputChange();
     autoSaveInput();
 
-    // Show size warning
-    const size = new Blob([textarea.value]).size;
+    // Show size warning — use .length (O(1)) to avoid Blob allocation on every keystroke
+    const size = textarea.value.length;
     if (size > 2.5 * 1024 * 1024) {  // 2.5MB warning
       formatLabel.textContent = `(${(size / 1024 / 1024).toFixed(1)}MB - 자동실행 제한 임박)`;
       formatLabel.style.color = 'var(--error-color)';
@@ -274,10 +305,24 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   });
 
   textarea.addEventListener('paste', (e) => {
+    autoFormatEnabled = false; // 붙여넣기 시작 시 항상 비활성화
     setTimeout(() => {
       const text = textarea.value;
-      const size = new Blob([text]).size;
+      const size = text.length; // .length is O(1); avoids Blob allocation on main thread
       const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
+      const LARGE_INPUT_THRESHOLD = 1 * 1024 * 1024; // 1MB
+
+      if (size <= LARGE_INPUT_THRESHOLD) {
+        autoFormatEnabled = true; // 소용량이면 복구
+      }
+      updateAutoFormatIndicator();
+
+      // 대용량 입력: CSV 검사, JSON 추출, 자동 포맷 모두 스킵 (UI 블로킹 방지)
+      if (size > LARGE_INPUT_THRESHOLD) {
+        parseCsvBtn.style.display = 'none';
+        onInputChange();
+        return;
+      }
 
       if (isCsvLike(text)) {
         parseCsvBtn.style.display = 'inline-block';
@@ -328,7 +373,11 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     handleTabKey(e);
   });
 
-  panel.querySelector('#formatJsonBtn').addEventListener('click', formatJson);
+  panel.querySelector('#formatJsonBtn').addEventListener('click', async () => {
+    autoFormatEnabled = true; // 수동 포맷 클릭 시 자동 포맷 복구
+    updateAutoFormatIndicator();
+    await formatJson();
+  });
 
   panel.querySelector('#clearInputBtn').addEventListener('click', () => {
     textarea.value = '';

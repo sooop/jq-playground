@@ -1,11 +1,18 @@
+import { createJqWorker, terminateJqWorker } from './jq-functions.js';
+
 class JqEngine {
   constructor() {
-    this.instance = null;
+    this.instance = null;             // 메인 스레드 인스턴스 (executeForContext + 폴백)
+    this.worker = null;
+    this.workerReady = false;
+    this.workerFailed = false;
+    this.pendingRequests = new Map(); // id → { resolve, reject }
+    this.requestIdCounter = 0;
+    this.messageQueue = [];           // ready 전 수신된 메시지 임시 보관
   }
 
   async init() {
     try {
-      // Load jq in main thread (Worker has WASM path issues)
       if (typeof window.jq === 'undefined') {
         throw new Error('jq is not loaded');
       }
@@ -18,13 +25,89 @@ class JqEngine {
         this.instance = await window.jq;
       }
 
+      // 워커 생성 — 실패해도 메인 스레드 폴백이 있으므로 예외 전파 안 함
+      this._initWorker();
+
       return true;
     } catch (error) {
       throw new Error('Failed to initialize jq engine: ' + error.message);
     }
   }
 
+  _initWorker() {
+    try {
+      this.worker = createJqWorker();
+      this.worker.onmessage = (e) => this._handleWorkerMessage(e);
+      this.worker.onerror = (err) => {
+        console.warn('jq worker error, falling back to main thread:', err);
+        this.workerFailed = true;
+        this.workerReady = false;
+        for (const [, pending] of this.pendingRequests) {
+          pending.reject(new Error('Worker error: ' + (err.message || 'unknown')));
+        }
+        this.pendingRequests.clear();
+        this.messageQueue = [];
+      };
+    } catch (err) {
+      console.warn('Failed to create jq worker, will use main thread:', err);
+      this.workerFailed = true;
+    }
+  }
+
+  _handleWorkerMessage(e) {
+    const { type, id, result, executionTime, message } = e.data;
+
+    if (type === 'ready') {
+      this.workerReady = true;
+      for (const msg of this.messageQueue) this.worker.postMessage(msg);
+      this.messageQueue = [];
+      return;
+    }
+
+    if (type === 'init_error') {
+      console.warn('jq worker init failed:', message, '— falling back to main thread');
+      this.workerFailed = true;
+      this.workerReady = false;
+      for (const [, pending] of this.pendingRequests) {
+        pending.reject(new Error('Worker init failed: ' + message));
+      }
+      this.pendingRequests.clear();
+      this.messageQueue = [];
+      return;
+    }
+
+    const pending = this.pendingRequests.get(id);
+    if (!pending) return; // 이미 교체된 요청의 응답 → 무시
+
+    this.pendingRequests.delete(id);
+    if (type === 'result') {
+      pending.resolve({ result, executionTime });
+    } else if (type === 'error') {
+      pending.reject(new Error(message));
+    }
+  }
+
   async execute(input, query) {
+    if (this.worker && !this.workerFailed) {
+      return this._executeInWorker(input, query);
+    }
+    return this._executeMainThread(input, query);
+  }
+
+  _executeInWorker(input, query) {
+    return new Promise((resolve, reject) => {
+      const id = ++this.requestIdCounter;
+      this.pendingRequests.set(id, { resolve, reject });
+      const msg = { type: 'execute', id, input, query };
+      if (this.workerReady) {
+        this.worker.postMessage(msg);
+      } else {
+        this.messageQueue.push(msg);
+      }
+    });
+  }
+
+  async _executeMainThread(input, query) {
     if (!this.instance) {
       throw new Error('jq engine not initialized');
     }
@@ -46,6 +129,20 @@ class JqEngine {
     }
   }
 
+  /** 워커 종료. beforeunload에서 호출. */
+  terminate() {
+    if (this.worker) {
+      terminateJqWorker(this.worker);
+      this.worker = null;
+      this.workerReady = false;
+    }
+    for (const [, pending] of this.pendingRequests) {
+      pending.reject(new Error('jq engine terminated'));
+    }
+    this.pendingRequests.clear();
+    this.messageQueue = [];
+  }
+
   /**
    * Execute partial query to infer context type
    * @param {string} input - JSON input data
@@ -59,13 +156,12 @@ class JqEngine {
     }
 
     try {
-      const data = JSON.parse(input);
-      const result = await this.instance.json(data, partialQuery);
+      // worker 경유 실행 — JSON.parse + WASM이 메인 스레드를 블로킹하지 않음
+      const { result } = await this.execute(input, partialQuery);
 
-      // Infer type and extract keys with deep traversal
+      // key extraction은 결과(소량)에 대해서만 실행
       if (Array.isArray(result)) {
         if (result.length > 0 && typeof result[0] === 'object') {
-          // Array of objects - extract keys from first few items with depth
           const keys = new Set();
           const sampleSize = Math.min(result.length, 5);
 
@@ -83,8 +179,7 @@ class JqEngine {
       }
 
       return { type: typeof result, keys: [] };
-    } catch (error) {
-      // Fallback to 'any' on error
+    } catch {
       return { type: 'any', keys: [] };
     }
   }

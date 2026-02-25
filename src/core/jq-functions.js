@@ -360,6 +360,110 @@ export function terminateKeyExtractionWorker(worker) {
   }
 }
 
+// ─── jq 실행 워커 ────────────────────────────────────────────────────────────
+
+const JQ_CDN_BASE = 'https://cdn.jsdelivr.net/npm/jq-web@0.6.2/';
+const JQ_CDN_JS = JQ_CDN_BASE + 'jq.js';
+
+// 워커 코드 문자열 — ${JQ_CDN_BASE}, ${JQ_CDN_JS}는 이 파일 평가 시점에 보간됨
+const JQ_WORKER_CODE = `
+  // importScripts() 전에 Module.locateFile 설정:
+  // blob: URL 컨텍스트에서는 상대경로 해석이 불가하므로 CDN 절대 URL로 우회
+  self.Module = {
+    locateFile: function(filename) {
+      return '${JQ_CDN_BASE}' + filename;
+    }
+  };
+
+  importScripts('${JQ_CDN_JS}');
+
+  let jqInstance = null;
+  let initError = null;
+
+  // 워커 시작 시 즉시 초기화 (첫 쿼리 지연 방지)
+  const initPromise = (function() {
+    try {
+      var jqRef = (typeof self.jq !== 'undefined') ? self.jq : null;
+      if (!jqRef) throw new Error('jq not available after importScripts');
+      var p = jqRef.promised ? jqRef.promised : jqRef;
+      return Promise.resolve(p).then(function(inst) {
+        jqInstance = inst;
+        self.postMessage({ type: 'ready' });
+      }).catch(function(err) {
+        initError = err;
+        self.postMessage({ type: 'init_error', message: err.message });
+      });
+    } catch(err) {
+      initError = err;
+      self.postMessage({ type: 'init_error', message: err.message });
+      return Promise.reject(err);
+    }
+  })();
+
+  self.onmessage = function(e) {
+    var msg = e.data;
+    if (msg.type !== 'execute') return;
+    var id = msg.id, input = msg.input, query = msg.query;
+
+    initPromise.then(function() {
+      if (initError || !jqInstance) {
+        self.postMessage({ type: 'error', id: id,
+          message: 'Worker init failed: ' + (initError ? initError.message : 'no instance') });
+        return;
+      }
+      var startTime = performance.now();
+      try {
+        var parsed = JSON.parse(input);
+        Promise.resolve(jqInstance.json(parsed, query)).then(function(result) {
+          self.postMessage({ type: 'result', id: id, result: result,
+            executionTime: performance.now() - startTime });
+        }).catch(function(err) {
+          var t = performance.now() - startTime;
+          if (err.message && err.message.includes('Unexpected end of JSON input')) {
+            self.postMessage({ type: 'result', id: id, result: [], executionTime: t });
+          } else {
+            self.postMessage({ type: 'error', id: id, message: err.message });
+          }
+        });
+      } catch(err) {
+        var t2 = performance.now() - startTime;
+        if (err.message && err.message.includes('Unexpected end of JSON input')) {
+          self.postMessage({ type: 'result', id: id, result: [], executionTime: t2 });
+        } else {
+          self.postMessage({ type: 'error', id: id, message: err.message });
+        }
+      }
+    }).catch(function(err) {
+      self.postMessage({ type: 'error', id: id,
+        message: 'Worker initialization error: ' + err.message });
+    });
+  };
+`;
+
+/**
+ * jq 쿼리 실행용 인라인 Web Worker 생성.
+ * Blob URL 방식으로 file:// 프로토콜 및 단일 파일 빌드와 호환.
+ * @returns {Worker}
+ */
+export function createJqWorker() {
+  const blob = new Blob([JQ_WORKER_CODE], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url);
+  worker._blobUrl = url;
+  return worker;
+}
+
+/**
+ * jq 워커를 종료하고 blob URL을 해제한다.
+ * @param {Worker} worker
+ */
+export function terminateJqWorker(worker) {
+  if (worker) {
+    worker.terminate();
+    if (worker._blobUrl) URL.revokeObjectURL(worker._blobUrl);
+  }
+}
+
 /**
  * Get the expected input type for a function
  * @param {string} functionName - Name of the jq function

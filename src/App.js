@@ -119,8 +119,12 @@ export class App {
     // Restore last input from history
     const lastInput = await Storage.getLastInput();
     if (lastInput?.content) {
-      // 자동 포맷팅 적용
-      const formattedContent = tryFormatJson(lastInput.content);
+      const LARGE_THRESHOLD = 1 * 1024 * 1024; // 1MB
+      // Use stored size if available, fall back to Blob calculation
+      const inputSize = lastInput.size ?? new Blob([lastInput.content]).size;
+      const formattedContent = inputSize > LARGE_THRESHOLD
+        ? lastInput.content
+        : tryFormatJson(lastInput.content);
       this.inputPanel.api.restoreInput(formattedContent, lastInput.fileName);
 
       // Content가 변경되었으면 DB 업데이트 (timestamp 유지)
@@ -152,8 +156,9 @@ export class App {
     // Flush storage and cleanup on page unload
     window.addEventListener('beforeunload', () => {
       Storage.flushAll();
-      // Terminate Worker to clean up resources
+      // Terminate Workers to clean up resources
       this.queryPanel.api.terminateWorker?.();
+      jqEngine.terminate();
     });
   }
 
@@ -165,17 +170,17 @@ export class App {
   executeQuery(forceExecute = false) {
     clearTimeout(this.debounceTimer);
 
-    const input = this.inputPanel.querySelector('#input').value.trim();
-    const inputSize = new Blob([input]).size;
-
     const SIZE_3MB = 3 * 1024 * 1024;
     const SIZE_500KB = 500 * 1024;
 
-    // Dynamic debounce based on input size
+    // Use .length (O(1) property) instead of Blob to avoid blocking the main thread.
+    // For ASCII/JSON, length ≈ byte size. Good enough for debounce heuristics.
+    const inputLength = this.inputPanel.querySelector('#input').value.length;
+
     let debounceDelay;
-    if (inputSize > SIZE_3MB) {
+    if (inputLength > SIZE_3MB) {
       debounceDelay = 1000;
-    } else if (inputSize > SIZE_500KB) {
+    } else if (inputLength > SIZE_500KB) {
       debounceDelay = 500;
     } else {
       debounceDelay = 300;
@@ -186,6 +191,12 @@ export class App {
       if (!forceExecute && !this.outputPanel.api.isAutoPlayEnabled()) {
         return;
       }
+
+      // Read value inside the timer — deferred off the synchronous event path.
+      // No .trim() and no Blob: both create O(n) string copies on the main thread.
+      // JSON.parse in the worker handles surrounding whitespace fine.
+      const input = this.inputPanel.querySelector('#input').value;
+      const inputSize = input.length;
 
       // Disable auto-execute if input exceeds 3MB (unless forced)
       if (inputSize > SIZE_3MB && !forceExecute) {
