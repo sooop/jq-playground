@@ -1117,7 +1117,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       }
 
       // Get input data
-      const inputData = document.getElementById('input').value.trim();
+      const inputData = document.getElementById('input').value;
       if (!inputData) {
         hideAutocomplete();
         return;

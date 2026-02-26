@@ -9,6 +9,7 @@ class JqEngine {
     this.pendingRequests = new Map(); // id → { resolve, reject }
     this.requestIdCounter = 0;
     this.messageQueue = [];           // ready 전 수신된 메시지 임시 보관
+    this._lastSentInput = null;       // Worker에 마지막으로 전송한 입력 (참조 비교)
   }
 
   async init() {
@@ -55,11 +56,12 @@ class JqEngine {
   }
 
   _handleWorkerMessage(e) {
-    const { type, id, result, executionTime, message } = e.data;
+    const msg = e.data;
+    const { type, id, message } = msg;
 
     if (type === 'ready') {
       this.workerReady = true;
-      for (const msg of this.messageQueue) this.worker.postMessage(msg);
+      for (const m of this.messageQueue) this.worker.postMessage(m);
       this.messageQueue = [];
       return;
     }
@@ -81,7 +83,25 @@ class JqEngine {
 
     this.pendingRequests.delete(id);
     if (type === 'result') {
-      pending.resolve({ result, executionTime });
+      // Worker가 Transferable ArrayBuffer로 결과를 반환
+      let resultText;
+      if (msg.resultBuffer !== undefined) {
+        const buf = msg.resultBuffer;
+        resultText = buf.byteLength > 0
+          ? new TextDecoder().decode(new Uint8Array(buf))
+          : '[]';
+      } else {
+        // 폴백: resultText 직접 수신 (이전 호환)
+        resultText = msg.resultText || '[]';
+      }
+      pending.resolve({ resultText, executionTime: msg.executionTime });
+    } else if (type === 'formatted') {
+      // formatResult 응답
+      if (msg.error) {
+        pending.reject(new Error(msg.error));
+      } else {
+        pending.resolve(msg);
+      }
     } else if (type === 'error') {
       pending.reject(new Error(message));
     }
@@ -94,11 +114,51 @@ class JqEngine {
     return this._executeMainThread(input, query);
   }
 
+  /**
+   * Worker에 입력이 변경되었을 때만 setInput 전송
+   */
+  _sendInputIfChanged(input) {
+    if (input !== this._lastSentInput) {
+      this._lastSentInput = input;
+      const msg = { type: 'setInput', input };
+      if (this.workerReady) {
+        this.worker.postMessage(msg);
+      } else {
+        this.messageQueue.push(msg);
+      }
+    }
+  }
+
   _executeInWorker(input, query) {
+    // 입력 변경 시에만 전송 (2MB+ 데이터 재전송 방지)
+    this._sendInputIfChanged(input);
+
     return new Promise((resolve, reject) => {
       const id = ++this.requestIdCounter;
       this.pendingRequests.set(id, { resolve, reject });
-      const msg = { type: 'execute', id, input, query };
+      // execute 메시지에는 input 없이 query만 전송
+      const msg = { type: 'execute', id, query };
+      if (this.workerReady) {
+        this.worker.postMessage(msg);
+      } else {
+        this.messageQueue.push(msg);
+      }
+    });
+  }
+
+  /**
+   * Worker에 포맷 변환 요청 (캐싱된 결과 사용)
+   * @param {string} format - 'json' or 'csv'
+   * @returns {Promise<{format, resultText?, html?, csv?}>}
+   */
+  formatResult(format) {
+    if (!this.worker || this.workerFailed) {
+      return Promise.reject(new Error('Worker not available'));
+    }
+    return new Promise((resolve, reject) => {
+      const id = ++this.requestIdCounter;
+      this.pendingRequests.set(id, { resolve, reject });
+      const msg = { type: 'formatResult', id, format };
       if (this.workerReady) {
         this.worker.postMessage(msg);
       } else {
@@ -118,12 +178,13 @@ class JqEngine {
       const parsedInput = JSON.parse(input);
       const result = await this.instance.json(parsedInput, query);
       const executionTime = performance.now() - startTime;
-      return { result, executionTime };
+      const resultText = JSON.stringify(result, null, 2);
+      return { result, resultText, executionTime };
     } catch (error) {
       const executionTime = performance.now() - startTime;
       // Handle empty result - jq-web throws "Unexpected end of JSON input" for empty output
       if (error.message && error.message.includes('Unexpected end of JSON input')) {
-        return { result: [], executionTime };
+        return { result: [], resultText: '[]', executionTime };
       }
       throw error;
     }
@@ -136,6 +197,7 @@ class JqEngine {
       this.worker = null;
       this.workerReady = false;
     }
+    this._lastSentInput = null;
     for (const [, pending] of this.pendingRequests) {
       pending.reject(new Error('jq engine terminated'));
     }
@@ -157,7 +219,11 @@ class JqEngine {
 
     try {
       // worker 경유 실행 — JSON.parse + WASM이 메인 스레드를 블로킹하지 않음
-      const { result } = await this.execute(input, partialQuery);
+      const execResult = await this.execute(input, partialQuery);
+      // Worker 경로는 resultText만 반환, 메인스레드는 result도 반환
+      const result = execResult.result !== undefined
+        ? execResult.result
+        : JSON.parse(execResult.resultText);
 
       // key extraction은 결과(소량)에 대해서만 실행
       if (Array.isArray(result)) {

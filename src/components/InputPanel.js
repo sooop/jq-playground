@@ -147,20 +147,28 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
 
         const historyItem = items.find(h => h.id === id);
         if (historyItem) {
-          // autoFormatEnabled 상태에 따라 포맷팅 여부 결정 (대용량 블로킹 방지)
-          const content = autoFormatEnabled
-            ? tryFormatJson(historyItem.content)
-            : historyItem.content;
-          textarea.value = content;
+          // raw content 먼저 표시 (즉시 반응)
+          textarea.value = historyItem.content;
           currentFileName = historyItem.fileName;
           onInputChange();
           historyDropdown.style.display = 'none';
 
-          // Content가 변경되었으면 DB 업데이트 (timestamp 유지)
-          if (autoFormatEnabled && content !== historyItem.content) {
-            await Storage.updateInputHistoryContent(id, content);
+          // 비동기 포맷팅 (Worker에서 수행, 메인스레드 블로킹 없음)
+          if (autoFormatEnabled) {
+            try {
+              const formatted = await formatJsonInWorker(historyItem.content);
+              if (formatted !== historyItem.content) {
+                textarea.value = formatted;
+                onInputChange();
+                await Storage.updateInputHistoryContent(id, formatted);
+              } else {
+                await Storage.saveInputHistory(historyItem.content, historyItem.fileName);
+              }
+            } catch {
+              // 포맷 실패 시 원본 유지, lastUsed만 업데이트
+              await Storage.saveInputHistory(historyItem.content, historyItem.fileName);
+            }
           } else {
-            // 변경 없거나 포맷 꺼짐 시 lastUsed만 업데이트
             await Storage.saveInputHistory(historyItem.content, historyItem.fileName);
           }
         }
@@ -242,13 +250,36 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }
   };
 
+  // Persistent format worker (재사용, idle 30초 후 자동 종료)
+  let _formatWorker = null;
+  let _formatWorkerUrl = null;
+  let _formatWorkerIdleTimer = null;
+  const FORMAT_WORKER_IDLE_MS = 30000;
+
+  const _getFormatWorker = () => {
+    clearTimeout(_formatWorkerIdleTimer);
+    if (!_formatWorker) {
+      const code = `self.onmessage=function(e){try{self.postMessage({ok:JSON.stringify(JSON.parse(e.data),null,4)})}catch(err){self.postMessage({err:err.message})}};`;
+      _formatWorkerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+      _formatWorker = new Worker(_formatWorkerUrl);
+    }
+    // idle 타이머 리셋
+    _formatWorkerIdleTimer = setTimeout(() => {
+      if (_formatWorker) {
+        _formatWorker.terminate();
+        if (_formatWorkerUrl) URL.revokeObjectURL(_formatWorkerUrl);
+        _formatWorker = null;
+        _formatWorkerUrl = null;
+      }
+    }, FORMAT_WORKER_IDLE_MS);
+    return _formatWorker;
+  };
+
   // Run JSON.parse + JSON.stringify in a Worker so the main thread stays responsive
   const formatJsonInWorker = (jsonString) => {
     return new Promise((resolve, reject) => {
-      const code = `self.onmessage=function(e){try{self.postMessage({ok:JSON.stringify(JSON.parse(e.data),null,4)})}catch(err){self.postMessage({err:err.message})}};`;
-      const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+      const worker = _getFormatWorker();
       worker.onmessage = (e) => {
-        worker.terminate();
         e.data.err ? reject(new Error(e.data.err)) : resolve(e.data.ok);
       };
       worker.postMessage(jsonString);
@@ -412,7 +443,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     try {
       let content = await readFile(file);
       const ext = file.name.split('.').pop().toLowerCase();
-      const size = new Blob([content]).size;
+      const size = content.length;
       const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
 
       // Auto-convert CSV/TSV to JSON
@@ -540,7 +571,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     try {
       let content = await readFile(file);
       const ext = file.name.split('.').pop().toLowerCase();
-      const size = new Blob([content]).size;
+      const size = content.length;
       const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
 
       // Auto-convert CSV/TSV to JSON

@@ -138,9 +138,21 @@ export class App {
     // Initialize auto-play chip indicator
     this.inputPanel.api.setAutoPlayIndicator(this.outputPanel.api.isAutoPlayEnabled());
 
-    // Format change listener - force execute even if paused
-    this.outputPanel.querySelector('#formatSelect').addEventListener('change', () => {
-      this.executeQuery(true);
+    // Format change listener - Worker에 formatResult 요청
+    this.outputPanel.querySelector('#formatSelect').addEventListener('change', async () => {
+      const format = this.outputPanel.api.getFormat();
+      // Worker에 캐싱된 결과로 포맷 변환 요청 시도
+      try {
+        const result = await jqEngine.formatResult(format);
+        if (result.format === 'json') {
+          this.outputPanel.api.showFormattedResult(result.resultText, 'json');
+        } else if (result.format === 'csv') {
+          this.outputPanel.api.showFormattedResult(result.html, 'csv', result.csv);
+        }
+      } catch {
+        // Worker 실패 시 폴백: 전체 재실행
+        this.executeQuery(true);
+      }
     });
 
     // Global keyboard shortcuts
@@ -226,11 +238,35 @@ export class App {
 
       this.outputPanel.api.showLoading();
 
+      // Stale 결과 방지: generation 카운터
+      this.executionGeneration = (this.executionGeneration || 0) + 1;
+      const thisGeneration = this.executionGeneration;
+
       try {
-        const { result, executionTime } = await jqEngine.execute(input, query);
+        const { resultText, executionTime } = await jqEngine.execute(input, query);
+
+        // Stale 체크: 이 사이에 새 실행이 시작되었으면 무시
+        if (thisGeneration !== this.executionGeneration) return;
+
         this.queryPanel.api.addToHistory(query);
-        this.outputPanel.api.showResult(result, format, executionTime);
+
+        // Worker가 resultText(stringify된 JSON)를 반환
+        if (format === 'json') {
+          this.outputPanel.api.showResultText(resultText, 'json', executionTime);
+        } else if (format === 'csv') {
+          // CSV 포맷: Worker에 formatResult 요청
+          try {
+            const csvResult = await jqEngine.formatResult('csv');
+            if (thisGeneration !== this.executionGeneration) return;
+            this.outputPanel.api.showFormattedResult(csvResult.html, 'csv', csvResult.csv, executionTime);
+          } catch {
+            // 폴백: JSON 텍스트라도 표시
+            if (thisGeneration !== this.executionGeneration) return;
+            this.outputPanel.api.showResultText(resultText, 'json', executionTime);
+          }
+        }
       } catch (error) {
+        if (thisGeneration !== this.executionGeneration) return;
         this.outputPanel.api.showError(error.message);
       }
     }, debounceDelay);
@@ -321,7 +357,7 @@ export class App {
 
   getInputKeys() {
     try {
-      const input = this.inputPanel.querySelector('#input').value.trim();
+      const input = this.inputPanel.querySelector('#input').value;
       if (!input) return [];
       const data = JSON.parse(input);
       return extractKeys(data);

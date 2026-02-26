@@ -13,6 +13,16 @@ const LIMITS = {
   QUERY_HISTORY: 100
 };
 
+// FNV-1a hash for fast content deduplication (32-bit, string output)
+function fnv1aHash(str) {
+  let hash = 0x811c9dc5; // FNV offset basis
+  for (let i = 0, len = str.length; i < len; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0; // FNV prime, unsigned
+  }
+  return hash.toString(36);
+}
+
 // Debounce utility
 function debounce(fn, delay) {
   let timer = null;
@@ -46,7 +56,7 @@ export class Storage {
 
     try {
       idb = new IndexedDBStorage();
-      await idb.init('jq-playground', 1, [
+      await idb.init('jq-playground', 2, [
         { name: 'input-history', options: { keyPath: 'id', autoIncrement: true } },
         { name: 'query-history', options: { keyPath: 'id', autoIncrement: true } },
         { name: 'saved-queries', options: { keyPath: 'id', autoIncrement: true } },
@@ -57,10 +67,31 @@ export class Storage {
 
       // Run migration if needed
       await this._migrateFromLocalStorage();
+
+      // Backfill contentHash for existing records that don't have it
+      await this._backfillContentHash();
     } catch (error) {
       console.error('IndexedDB initialization failed, falling back to localStorage:', error);
       useIndexedDB = false;
       idb = null;
+    }
+  }
+
+  /**
+   * Backfill contentHash for existing input-history records
+   */
+  static async _backfillContentHash() {
+    try {
+      const items = await idb.getAll('input-history');
+      for (const item of items) {
+        if (!item.contentHash && item.content) {
+          await idb.update('input-history', item.id, {
+            contentHash: fnv1aHash(item.content)
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('contentHash backfill failed (non-critical):', error);
     }
   }
 
@@ -138,11 +169,17 @@ export class Storage {
     }
 
     const formattedContent = this._formatContent(content);
+    const hash = fnv1aHash(formattedContent);
 
     try {
       if (useIndexedDB && idb) {
-        // Check for duplicate
-        const existing = await idb.findByField('input-history', 'content', formattedContent);
+        // O(1) 해시 인덱스 조회 (전체 테이블 스캔 대신)
+        let existing = await idb.findByIndex('input-history', 'contentHash', hash);
+
+        // 해시 충돌 확인: 해시가 같아도 content가 다를 수 있음
+        if (existing && existing.content !== formattedContent) {
+          existing = null;
+        }
 
         if (existing) {
           // Update lastUsed only
@@ -151,10 +188,12 @@ export class Storage {
           });
         } else {
           // Create new entry
+          // content.length is a fast approximation of byte size for ASCII/JSON
           const entry = {
             content: formattedContent,
+            contentHash: hash,
             fileName,
-            size: new Blob([formattedContent]).size,
+            size: formattedContent.length,
             timestamp: new Date().toISOString(),
             lastUsed: new Date().toISOString()
           };
@@ -178,7 +217,7 @@ export class Storage {
           const entry = {
             content: formattedContent,
             fileName,
-            size: new Blob([formattedContent]).size,
+            size: formattedContent.length,
             timestamp: new Date().toISOString(),
             lastUsed: new Date().toISOString()
           };
@@ -241,7 +280,8 @@ export class Storage {
       if (useIndexedDB && idb) {
         await idb.update('input-history', id, {
           content: formattedContent,
-          size: new Blob([formattedContent]).size,
+          contentHash: fnv1aHash(formattedContent),
+          size: formattedContent.length,
           lastUsed: new Date().toISOString()
         });
       } else {
@@ -249,7 +289,7 @@ export class Storage {
         const item = history.find(h => h.id === id);
         if (item) {
           item.content = formattedContent;
-          item.size = new Blob([formattedContent]).size;
+          item.size = formattedContent.length;
           item.lastUsed = new Date().toISOString();
           localStorage.setItem(STORAGE_KEYS.INPUT_HISTORY, JSON.stringify(history));
         }

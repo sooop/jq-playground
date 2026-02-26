@@ -1,5 +1,6 @@
 import { jsonToHTML, jsonToCSV } from '../core/csv-converter.js';
 import { downloadText } from '../core/file-handler.js';
+import { VirtualScroller } from '../utils/virtual-scroller.js';
 
 export function createOutputPanel() {
   const panel = document.createElement('div');
@@ -48,6 +49,7 @@ export function createOutputPanel() {
   const searchCloseBtn = panel.querySelector('#searchCloseBtn');
 
   let lastResultData = null;
+  let lastResultText = null;  // Worker에서 받은 JSON.stringify 결과 (텍스트)
   let lastCsvCache = null;
   let errorTimeout = null;
   let autoPlayEnabled = true;
@@ -55,6 +57,11 @@ export function createOutputPanel() {
   let currentMatchIndex = -1;
   let originalOutputHTML = '';
   let isInErrorState = false;
+  let searchDebounceTimer = null;
+
+  // Virtual scroller for large JSON output
+  const virtualScroller = new VirtualScroller(output);
+  let isVirtualScrollActive = false;
 
   // Helper function to generate stats
   function generateStats(data, executionTime) {
@@ -110,6 +117,12 @@ export function createOutputPanel() {
     searchMatches = [];
     currentMatchIndex = -1;
     searchInfo.textContent = '';
+
+    if (isVirtualScrollActive) {
+      // 가상 스크롤러 검색 초기화 + 하이라이트 제거
+      virtualScroller.search('');
+      return;
+    }
     // Restore original content
     if (originalOutputHTML && formatSelect.value === 'json') {
       output.innerHTML = '';
@@ -119,42 +132,54 @@ export function createOutputPanel() {
 
   function performSearch() {
     const query = searchInput.value;
-    if (!query || !lastResultData) {
+    if (!query || (!lastResultData && !lastResultText)) {
       clearSearch();
       return;
     }
 
-    // Store original text content for JSON mode
-    if (formatSelect.value === 'json') {
-      if (!originalOutputHTML) {
-        originalOutputHTML = output.textContent;
-      }
+    if (formatSelect.value !== 'json') {
+      searchInfo.textContent = 'Search works in JSON view';
+      return;
+    }
 
-      const text = originalOutputHTML;
-      const regex = new RegExp(escapeRegExp(query), 'gi');
-      searchMatches = [];
-      let match;
-
-      while ((match = regex.exec(text)) !== null) {
-        searchMatches.push({
-          start: match.index,
-          end: match.index + match[0].length,
-          text: match[0]
-        });
-      }
-
-      if (searchMatches.length > 0) {
-        currentMatchIndex = 0;
-        highlightMatches();
-        updateSearchInfo();
+    // 가상 스크롤 모드: 스크롤러 내부 검색 사용
+    if (isVirtualScrollActive) {
+      const { total } = virtualScroller.search(query);
+      if (total > 0) {
+        const info = virtualScroller.getMatchInfo();
+        searchInfo.textContent = `${info.current} of ${info.total}`;
       } else {
         searchInfo.textContent = 'No matches';
-        output.innerHTML = '';
-        output.textContent = originalOutputHTML;
       }
+      return;
+    }
+
+    // 일반 모드: 기존 검색 로직
+    if (!originalOutputHTML) {
+      originalOutputHTML = output.textContent;
+    }
+
+    const text = originalOutputHTML;
+    const regex = new RegExp(escapeRegExp(query), 'gi');
+    searchMatches = [];
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      searchMatches.push({
+        start: match.index,
+        end: match.index + match[0].length,
+        text: match[0]
+      });
+    }
+
+    if (searchMatches.length > 0) {
+      currentMatchIndex = 0;
+      highlightMatches();
+      updateSearchInfo();
     } else {
-      // For CSV/table view, simple text search
-      searchInfo.textContent = 'Search works in JSON view';
+      searchInfo.textContent = 'No matches';
+      output.innerHTML = '';
+      output.textContent = originalOutputHTML;
     }
   }
 
@@ -200,6 +225,12 @@ export function createOutputPanel() {
   }
 
   function goToNextMatch() {
+    if (isVirtualScrollActive) {
+      virtualScroller.nextMatch();
+      const info = virtualScroller.getMatchInfo();
+      if (info) searchInfo.textContent = `${info.current} of ${info.total}`;
+      return;
+    }
     if (searchMatches.length === 0) return;
     currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
     highlightMatches();
@@ -207,15 +238,24 @@ export function createOutputPanel() {
   }
 
   function goToPrevMatch() {
+    if (isVirtualScrollActive) {
+      virtualScroller.prevMatch();
+      const info = virtualScroller.getMatchInfo();
+      if (info) searchInfo.textContent = `${info.current} of ${info.total}`;
+      return;
+    }
     if (searchMatches.length === 0) return;
     currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
     highlightMatches();
     updateSearchInfo();
   }
 
-  // Search event listeners
+  // Search event listeners (200ms 디바운스)
   searchInput.addEventListener('input', () => {
-    performSearch();
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => {
+      performSearch();
+    }, 200);
   });
 
   searchInput.addEventListener('keydown', (e) => {
@@ -253,38 +293,113 @@ export function createOutputPanel() {
       output.innerHTML = '<span class="loading">Processing...</span>';
     },
 
+    /**
+     * 기존 호환 API: raw 객체를 받아서 메인스레드에서 stringify
+     * (폴백 전용 — Worker가 실패했을 때만 사용)
+     */
     showResult: (data, format, executionTime) => {
       lastResultData = data;
-      lastCsvCache = null; // Invalidate cache on new data
-      originalOutputHTML = ''; // Reset for new results
+      lastResultText = null;
+      lastCsvCache = null;
+      originalOutputHTML = '';
       clearSearch();
 
-      // 에러 상태 및 stale 스타일 제거
       isInErrorState = false;
       output.classList.remove('stale-result-subtle');
 
-      const isArray = Array.isArray(data);
-
       if (format === 'json') {
-        output.textContent = JSON.stringify(data, null, 2);
+        const text = JSON.stringify(data, null, 2);
+        lastResultText = text;
+        virtualScroller.setText(text);
+        isVirtualScrollActive = virtualScroller.active;
       } else if (format === 'csv') {
-        output.innerHTML = jsonToHTML(data, isArray);
-        // Pre-cache CSV conversion when in CSV view
+        isVirtualScrollActive = false;
+        output.innerHTML = jsonToHTML(data, Array.isArray(data));
         lastCsvCache = jsonToCSV(data);
       }
 
-      // Flash effect
       output.classList.remove('flash');
-      void output.offsetWidth; // reflow trigger
+      void output.offsetWidth;
       output.classList.add('flash');
 
-      // Update last run time
+      const now = new Date();
+      lastRunTime.textContent = now.toLocaleTimeString();
+      statsBar.innerHTML = generateStats(data, executionTime);
+      statsBar.style.display = 'flex';
+      api.hideError();
+    },
+
+    /**
+     * Worker에서 받은 stringify된 텍스트로 결과 표시 (메인스레드 stringify 제거)
+     */
+    showResultText: (resultText, format, executionTime) => {
+      lastResultData = null;
+      lastResultText = resultText;
+      lastCsvCache = null;
+      originalOutputHTML = '';
+      clearSearch();
+
+      isInErrorState = false;
+      output.classList.remove('stale-result-subtle');
+
+      // 가상 스크롤링: 줄 수에 따라 자동 활성화
+      virtualScroller.setText(resultText);
+      isVirtualScrollActive = virtualScroller.active;
+
+      output.classList.remove('flash');
+      void output.offsetWidth;
+      output.classList.add('flash');
+
       const now = new Date();
       lastRunTime.textContent = now.toLocaleTimeString();
 
-      // Update stats bar
-      statsBar.innerHTML = generateStats(data, executionTime);
+      // resultText에서 간단한 stats 추출
+      let statsHtml = '';
+      if (executionTime !== undefined) {
+        const timeStr = executionTime < 1 ? '<1ms' : `${executionTime.toFixed(1)}ms`;
+        statsHtml += `<span class="stat-item stat-time">${timeStr}</span>`;
+      }
+      statsHtml += `<span class="stat-item stat-type">json</span>`;
+      if (isVirtualScrollActive) {
+        statsHtml += `<span class="stat-item">${virtualScroller.totalLines.toLocaleString()} lines</span>`;
+      }
+      statsBar.innerHTML = statsHtml;
       statsBar.style.display = 'flex';
+      api.hideError();
+    },
+
+    /**
+     * Worker에서 포맷 변환된 결과 표시 (formatResult 응답)
+     */
+    showFormattedResult: (content, format, csvCache, executionTime) => {
+      originalOutputHTML = '';
+      clearSearch();
+
+      isInErrorState = false;
+      output.classList.remove('stale-result-subtle');
+
+      if (format === 'json') {
+        lastResultText = content;
+        virtualScroller.setText(content);
+        isVirtualScrollActive = virtualScroller.active;
+      } else if (format === 'csv') {
+        isVirtualScrollActive = false;
+        output.innerHTML = content; // HTML table
+        if (csvCache) lastCsvCache = csvCache;
+      }
+
+      output.classList.remove('flash');
+      void output.offsetWidth;
+      output.classList.add('flash');
+
+      const now = new Date();
+      lastRunTime.textContent = now.toLocaleTimeString();
+
+      if (executionTime !== undefined) {
+        const timeStr = executionTime < 1 ? '<1ms' : `${executionTime.toFixed(1)}ms`;
+        statsBar.innerHTML = `<span class="stat-item stat-time">${timeStr}</span><span class="stat-item stat-type">${format}</span>`;
+        statsBar.style.display = 'flex';
+      }
 
       api.hideError();
     },
@@ -304,15 +419,22 @@ export function createOutputPanel() {
       }
 
       // 이전 결과가 있으면 다시 렌더링하여 유지
-      if (lastResultData !== null) {
-        // 현재 format으로 이전 결과를 다시 렌더링
+      if (lastResultText !== null || lastResultData !== null) {
         const currentFormat = formatSelect.value;
-        const isArray = Array.isArray(lastResultData);
 
+        // 에러 상태에서는 가상 스크롤 비활성화하고 단순 텍스트로 표시
         if (currentFormat === 'json') {
-          output.textContent = JSON.stringify(lastResultData, null, 2);
+          if (lastResultText) {
+            isVirtualScrollActive = false;
+            output.textContent = lastResultText;
+          } else if (lastResultData) {
+            isVirtualScrollActive = false;
+            output.textContent = JSON.stringify(lastResultData, null, 2);
+          }
         } else if (currentFormat === 'csv') {
-          output.innerHTML = jsonToHTML(lastResultData, isArray);
+          if (lastResultData) {
+            output.innerHTML = jsonToHTML(lastResultData, Array.isArray(lastResultData));
+          }
         }
 
         output.classList.add('stale-result-subtle');
@@ -347,7 +469,10 @@ export function createOutputPanel() {
     clear: () => {
       output.textContent = '';
       lastResultData = null;
+      lastResultText = null;
       lastCsvCache = null;
+      isVirtualScrollActive = false;
+      virtualScroller.setLines([]);
       statsBar.innerHTML = '';
       statsBar.style.display = 'none';
       isInErrorState = false;
@@ -387,12 +512,15 @@ export function createOutputPanel() {
     const format = formatSelect.value;
     let text;
 
-    if (format === 'csv' && lastResultData) {
-      // Use cache if available
-      if (!lastCsvCache) {
-        lastCsvCache = jsonToCSV(lastResultData);
-      }
+    if (format === 'csv' && lastCsvCache) {
       text = lastCsvCache;
+    } else if (format === 'csv' && lastResultData) {
+      lastCsvCache = jsonToCSV(lastResultData);
+      text = lastCsvCache;
+    } else if (isVirtualScrollActive) {
+      text = virtualScroller.getFullText();
+    } else if (lastResultText) {
+      text = lastResultText;
     } else {
       text = output.textContent;
     }
@@ -406,23 +534,42 @@ export function createOutputPanel() {
     });
   });
 
-  downloadBtn.addEventListener('click', () => {
+  downloadBtn.addEventListener('click', async () => {
     const format = formatSelect.value;
     let text;
 
     if (format === 'json') {
-      text = output.textContent;
+      text = lastResultText || output.textContent;
     } else if (format === 'csv') {
-      if (lastResultData) {
-        // Use cache if available
-        if (!lastCsvCache) {
-          lastCsvCache = jsonToCSV(lastResultData);
-        }
+      if (lastCsvCache) {
+        text = lastCsvCache;
+      } else if (lastResultData) {
+        lastCsvCache = jsonToCSV(lastResultData);
         text = lastCsvCache;
       } else {
-        api.showError('데이터가 없습니다.');
-        return;
+        // Worker에서 CSV 생성 시도
+        try {
+          downloadBtn.textContent = 'Generating...';
+          downloadBtn.disabled = true;
+          const { jqEngine } = await import('../core/jq-engine.js');
+          const result = await jqEngine.formatResult('csv');
+          lastCsvCache = result.csv;
+          text = result.csv;
+        } catch {
+          api.showError('CSV 생성에 실패했습니다.');
+          downloadBtn.textContent = 'Download';
+          downloadBtn.disabled = false;
+          return;
+        } finally {
+          downloadBtn.textContent = 'Download';
+          downloadBtn.disabled = false;
+        }
       }
+    }
+
+    if (!text) {
+      api.showError('데이터가 없습니다.');
+      return;
     }
 
     const filename = `output.${format === 'json' ? 'json' : 'csv'}`;

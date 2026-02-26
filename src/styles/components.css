@@ -1133,3 +1133,17 @@ tr:hover {
 #parseCsvBtn:hover {
     opacity: 0.9;
 }
+
+/* Virtual Scroller */
+.virtual-viewport {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    white-space: pre;
+}
+
+.virtual-viewport .vline {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 8px;
+    box-sizing: border-box;
+}

@@ -34,17 +34,26 @@ export class IndexedDBStorage {
 
       request.onupgradeneeded = (event) => {
         const db = event.target.result;
+        const tx = event.target.transaction;
 
         stores.forEach(({ name, options }) => {
+          let store;
           if (!db.objectStoreNames.contains(name)) {
-            const store = db.createObjectStore(name, options);
+            store = db.createObjectStore(name, options);
 
             // Create indexes for common query patterns
             if (name === 'input-history' || name === 'query-history') {
               store.createIndex('timestamp', 'timestamp', { unique: false });
               if (name === 'input-history') {
                 store.createIndex('lastUsed', 'lastUsed', { unique: false });
+                store.createIndex('contentHash', 'contentHash', { unique: false });
               }
+            }
+          } else {
+            store = tx.objectStore(name);
+            // v2 upgrade: add contentHash index to input-history
+            if (name === 'input-history' && !store.indexNames.contains('contentHash')) {
+              store.createIndex('contentHash', 'contentHash', { unique: false });
             }
           }
         });
@@ -252,7 +261,7 @@ export class IndexedDBStorage {
   }
 
   /**
-   * Find a record by field value
+   * Find a record by field value (full table scan — legacy)
    * @param {string} storeName - Object store name
    * @param {string} field - Field name to search
    * @param {*} value - Value to match
@@ -276,6 +285,29 @@ export class IndexedDBStorage {
         }
       };
 
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Find a record by indexed field (O(1) lookup)
+   * @param {string} storeName - Object store name
+   * @param {string} indexName - Index name
+   * @param {*} value - Value to match
+   */
+  async findByIndex(storeName, indexName, value) {
+    return new Promise((resolve, reject) => {
+      const transaction = this.db.transaction([storeName], 'readonly');
+      const store = transaction.objectStore(storeName);
+      if (!store.indexNames.contains(indexName)) {
+        // 인덱스가 없으면 null 반환 (폴백 처리)
+        resolve(null);
+        return;
+      }
+      const index = store.index(indexName);
+      const request = index.get(value);
+
+      request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error);
     });
   }

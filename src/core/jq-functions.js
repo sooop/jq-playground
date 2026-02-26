@@ -380,6 +380,111 @@ const JQ_WORKER_CODE = `
   let jqInstance = null;
   let initError = null;
 
+  // ── 입력 캐싱: setInput으로 전송된 입력을 보관 ──
+  var cachedInput = null;   // raw JSON 문자열
+  var cachedParsed = null;  // JSON.parse 결과 (재파싱 방지)
+
+  // ── 결과 캐싱: 마지막 jq 실행 결과를 보관 (formatResult에서 사용) ──
+  var cachedResult = null;
+
+  // ── CSV 변환 함수 (Worker 내부 인라인) ──
+  var CSV_MAX_DEPTH = 10;
+  function csvFlatten(obj, prefix, depth) {
+    var flattened = {};
+    for (var key in obj) {
+      var value = obj[key];
+      var newKey = prefix ? prefix + '_' + key : key;
+      if (value === null || value === undefined) {
+        flattened[newKey] = '';
+      } else if (typeof value === 'object' && !Array.isArray(value)) {
+        if (depth < CSV_MAX_DEPTH) {
+          var sub = csvFlatten(value, newKey, depth + 1);
+          for (var sk in sub) flattened[sk] = sub[sk];
+        } else {
+          flattened[newKey] = JSON.stringify(value);
+        }
+      } else if (Array.isArray(value)) {
+        flattened[newKey] = JSON.stringify(value);
+      } else {
+        flattened[newKey] = value;
+      }
+    }
+    return flattened;
+  }
+
+  function csvEscapeHtml(text) {
+    return text.replace(/[&<>"']/g, function(m) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#039;"}[m];
+    });
+  }
+
+  function workerJsonToHTML(data) {
+    var wasArray = Array.isArray(data);
+    if (!wasArray) data = [data];
+    if (data.length === 0) return '<div>No data</div>';
+
+    var MAX_TABLE_ROWS = 1000;
+    var warningMsg = '';
+    var totalRows = data.length;
+    var displayData = data;
+    if (totalRows > MAX_TABLE_ROWS) {
+      warningMsg = '<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">' +
+        '⚠️ 데이터가 너무 많습니다. 테이블에 첫 ' + MAX_TABLE_ROWS + '행만 표시됩니다. (총 ' + totalRows + '행)' +
+        '<br/>전체 데이터는 <strong>Download</strong> 버튼으로 CSV 파일로 다운로드하세요.</div>';
+      displayData = data.slice(0, MAX_TABLE_ROWS);
+    }
+    var rows = [];
+    for (var i = 0; i < displayData.length; i++) rows.push(csvFlatten(displayData[i], '', 0));
+    if (rows.length === 0) return '<div>No data</div>';
+
+    var keySet = {};
+    for (var ri = 0; ri < rows.length; ri++) {
+      var rk = Object.keys(rows[ri]);
+      for (var ki = 0; ki < rk.length; ki++) keySet[rk[ki]] = true;
+    }
+    var keys = Object.keys(keySet).sort();
+
+    var html = warningMsg + '<table><thead><tr>';
+    for (var hi = 0; hi < keys.length; hi++) html += '<th>' + csvEscapeHtml(keys[hi]) + '</th>';
+    html += '</tr></thead><tbody>';
+    for (var bi = 0; bi < rows.length; bi++) {
+      html += '<tr>';
+      for (var ci = 0; ci < keys.length; ci++) {
+        var val = rows[bi][keys[ci]] !== undefined ? rows[bi][keys[ci]] : '';
+        html += '<td>' + csvEscapeHtml(String(val)) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    return html;
+  }
+
+  function workerJsonToCSV(data) {
+    if (!Array.isArray(data)) data = [data];
+    if (data.length === 0) return '';
+    var rows = [];
+    for (var i = 0; i < data.length; i++) rows.push(csvFlatten(data[i], '', 0));
+    var keySet = {};
+    for (var ri = 0; ri < rows.length; ri++) {
+      var rk = Object.keys(rows[ri]);
+      for (var ki = 0; ki < rk.length; ki++) keySet[rk[ki]] = true;
+    }
+    var keys = Object.keys(keySet).sort();
+    var csv = keys.map(function(k) { return '"' + k.replace(/"/g, '""') + '"'; }).join(',') + '\\n';
+    for (var bi = 0; bi < rows.length; bi++) {
+      var cells = [];
+      for (var ci = 0; ci < keys.length; ci++) {
+        var value = rows[bi][keys[ci]] !== undefined ? String(rows[bi][keys[ci]]) : '';
+        if (value.indexOf(',') !== -1 || value.indexOf('"') !== -1 || value.indexOf('\\n') !== -1) {
+          value = '"' + value.replace(/"/g, '""') + '"';
+        }
+        cells.push(value);
+      }
+      csv += cells.join(',') + '\\n';
+    }
+    return csv;
+  }
+
   // 워커 시작 시 즉시 초기화 (첫 쿼리 지연 방지)
   const initPromise = (function() {
     try {
@@ -402,8 +507,45 @@ const JQ_WORKER_CODE = `
 
   self.onmessage = function(e) {
     var msg = e.data;
+
+    // ── setInput: 입력 데이터 캐싱 (변경 시에만 전송됨) ──
+    if (msg.type === 'setInput') {
+      cachedInput = msg.input;
+      cachedParsed = null; // 파싱 캐시 무효화
+      cachedResult = null; // 결과 캐시 무효화
+      return;
+    }
+
+    // ── formatResult: 캐싱된 결과로 포맷 변환 ──
+    if (msg.type === 'formatResult') {
+      if (cachedResult === null) {
+        self.postMessage({ type: 'formatted', id: msg.id, error: 'No cached result' });
+        return;
+      }
+      try {
+        if (msg.format === 'json') {
+          var jsonText = JSON.stringify(cachedResult, null, 2);
+          self.postMessage({ type: 'formatted', id: msg.id, format: 'json', resultText: jsonText });
+        } else if (msg.format === 'csv') {
+          var html = workerJsonToHTML(cachedResult);
+          var csv = workerJsonToCSV(cachedResult);
+          self.postMessage({ type: 'formatted', id: msg.id, format: 'csv', html: html, csv: csv });
+        }
+      } catch(err) {
+        self.postMessage({ type: 'formatted', id: msg.id, error: err.message });
+      }
+      return;
+    }
+
     if (msg.type !== 'execute') return;
-    var id = msg.id, input = msg.input, query = msg.query;
+    var id = msg.id, query = msg.query;
+
+    // 입력은 cachedInput 사용 (없으면 msg.input 폴백)
+    var input = cachedInput !== null ? cachedInput : msg.input;
+    if (input === null || input === undefined) {
+      self.postMessage({ type: 'error', id: id, message: 'No input data' });
+      return;
+    }
 
     initPromise.then(function() {
       if (initError || !jqInstance) {
@@ -413,14 +555,25 @@ const JQ_WORKER_CODE = `
       }
       var startTime = performance.now();
       try {
-        var parsed = JSON.parse(input);
+        // 캐싱된 파싱 결과 사용 (입력이 같으면 재파싱 방지)
+        if (cachedParsed === null) {
+          cachedParsed = JSON.parse(input);
+        }
+        var parsed = cachedParsed;
+
         Promise.resolve(jqInstance.json(parsed, query)).then(function(result) {
-          self.postMessage({ type: 'result', id: id, result: result,
-            executionTime: performance.now() - startTime });
+          cachedResult = result;
+          var text = JSON.stringify(result, null, 2);
+          var encoded = new TextEncoder().encode(text);
+          self.postMessage(
+            { type: 'result', id: id, resultBuffer: encoded.buffer, executionTime: performance.now() - startTime },
+            [encoded.buffer]
+          );
         }).catch(function(err) {
           var t = performance.now() - startTime;
           if (err.message && err.message.includes('Unexpected end of JSON input')) {
-            self.postMessage({ type: 'result', id: id, result: [], executionTime: t });
+            cachedResult = [];
+            self.postMessage({ type: 'result', id: id, resultBuffer: new ArrayBuffer(0), executionTime: t });
           } else {
             self.postMessage({ type: 'error', id: id, message: err.message });
           }
@@ -428,7 +581,8 @@ const JQ_WORKER_CODE = `
       } catch(err) {
         var t2 = performance.now() - startTime;
         if (err.message && err.message.includes('Unexpected end of JSON input')) {
-          self.postMessage({ type: 'result', id: id, result: [], executionTime: t2 });
+          cachedResult = [];
+          self.postMessage({ type: 'result', id: id, resultBuffer: new ArrayBuffer(0), executionTime: t2 });
         } else {
           self.postMessage({ type: 'error', id: id, message: err.message });
         }
