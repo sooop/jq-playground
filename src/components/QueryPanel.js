@@ -357,6 +357,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   });
 
   textarea.addEventListener('keydown', (e) => {
+    // Ctrl+Enter: 항상 최우선 처리
+    if (e.ctrlKey && e.key === 'Enter') {
+      e.preventDefault();
+      hideAutocomplete();
+      if (onExecute) onExecute();
+      return;
+    }
+
     // Handle autocomplete navigation
     if (autocompleteList.classList.contains('show')) {
       if (e.key === 'ArrowDown') {
@@ -369,16 +377,19 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         selectedAutocompleteIndex = Math.max(selectedAutocompleteIndex - 1, -1);
         renderAutocomplete();
         return;
+      } else if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
+        hideAutocomplete();
+        return;
       } else if (e.key === 'Tab' && autocompleteItems.length > 0) {
-        // Tab: Cycle through items
         e.preventDefault();
-        if (e.shiftKey) {
-          // Shift+Tab: Previous item (cycle backward)
+        if (selectedAutocompleteIndex === -1) {
+          // 첫 Tab: 첫 번째 항목 선택
+          selectedAutocompleteIndex = e.shiftKey ? autocompleteItems.length - 1 : 0;
+        } else if (e.shiftKey) {
           selectedAutocompleteIndex = selectedAutocompleteIndex <= 0
             ? autocompleteItems.length - 1
             : selectedAutocompleteIndex - 1;
         } else {
-          // Tab: Next item (cycle forward)
           selectedAutocompleteIndex = (selectedAutocompleteIndex + 1) % autocompleteItems.length;
         }
         renderAutocomplete();
@@ -395,15 +406,6 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       }
     }
 
-    // Ctrl+Enter: Execute query immediately
-    if (e.ctrlKey && e.key === 'Enter') {
-      e.preventDefault();
-      if (onExecute) {
-        onExecute();
-      }
-      return;
-    }
-
     // Ctrl+Shift+F: Format query
     if (e.ctrlKey && e.shiftKey && e.key === 'F') {
       e.preventDefault();
@@ -412,6 +414,15 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
 
     handleTabKey(e);
+  });
+
+  textarea.addEventListener('blur', () => {
+    // 자동완성 항목 클릭 시 blur가 먼저 발생하므로 지연 처리
+    setTimeout(() => {
+      if (document.activeElement !== textarea) {
+        hideAutocomplete();
+      }
+    }, 150);
   });
 
   panel.querySelector('#executeQueryBtn').addEventListener('click', () => {
@@ -1050,13 +1061,19 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
 
     autocompleteItems = matches;
-    selectedAutocompleteIndex = 0;
+    selectedAutocompleteIndex = -1;
     renderAutocomplete();
     autocompleteList.classList.add('show');
   }
 
   async function updateAutocomplete() {
-    const { word, isFieldAccess } = getCurrentWord();
+    const { word, isFieldAccess, isCursorAtWordEnd } = getCurrentWord();
+
+    // 커서가 단어 끝이 아니면 자동완성 표시하지 않음
+    if (!isCursorAtWordEnd && word.length > 0) {
+      hideAutocomplete();
+      return;
+    }
 
     // Variable autocomplete: when word starts with $
     if (word.startsWith('$')) {
@@ -1084,7 +1101,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         }
 
         autocompleteItems = matches;
-        selectedAutocompleteIndex = 0;
+        selectedAutocompleteIndex = -1;
         renderAutocomplete();
         autocompleteList.classList.add('show');
       } else {
@@ -1296,7 +1313,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
 
     autocompleteItems = matches;
-    selectedAutocompleteIndex = 0;
+    selectedAutocompleteIndex = -1;
     renderAutocomplete();
     autocompleteList.classList.add('show');
   }
@@ -1373,25 +1390,21 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       item.addEventListener('mouseenter', () => {
         if (!hoverLocked) {
           selectedAutocompleteIndex = index;
+          autocompleteList.querySelectorAll('.autocomplete-item').forEach((el, i) => {
+            el.classList.toggle('selected', i === index);
+          });
         }
       });
 
       // mouseleave: 메뉴 밖으로 나갈 때만 선택 초기화
-      item.addEventListener('mouseleave', () => {
+      item.addEventListener('mouseleave', (e) => {
         if (!hoverLocked) {
           const rect = autocompleteList.getBoundingClientRect();
-          const mouseEvent = window.event;
-          if (mouseEvent) {
-            const isOverList = (
-              mouseEvent.clientX >= rect.left &&
-              mouseEvent.clientX <= rect.right &&
-              mouseEvent.clientY >= rect.top &&
-              mouseEvent.clientY <= rect.bottom
-            );
-
-            if (!isOverList) {
-              selectedAutocompleteIndex = -1;
-            }
+          if (e.clientX < rect.left || e.clientX > rect.right ||
+              e.clientY < rect.top || e.clientY > rect.bottom) {
+            selectedAutocompleteIndex = -1;
+            autocompleteList.querySelectorAll('.autocomplete-item.selected')
+              .forEach(el => el.classList.remove('selected'));
           }
         }
       });
