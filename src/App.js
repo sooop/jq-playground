@@ -7,7 +7,6 @@ import { createCheatsheet } from './components/Cheatsheet.js';
 import { jqEngine } from './core/jq-engine.js';
 import { extractKeys } from './core/jq-functions.js';
 import { Storage } from './utils/storage.js';
-import { tryFormatJson } from './utils/json-extractor.js';
 
 const RESIZE_STORAGE_KEY = 'jq-panel-resize';
 
@@ -115,25 +114,6 @@ export class App {
     app.appendChild(container);
     app.appendChild(this.modal);
     app.appendChild(this.helpModal);
-
-    // Restore last input from history
-    const lastInput = await Storage.getLastInput();
-    if (lastInput?.content) {
-      const LARGE_THRESHOLD = 1 * 1024 * 1024; // 1MB
-      // Use stored size if available, fall back to Blob calculation
-      const inputSize = lastInput.size ?? new Blob([lastInput.content]).size;
-      const formattedContent = inputSize > LARGE_THRESHOLD
-        ? lastInput.content
-        : tryFormatJson(lastInput.content);
-      this.inputPanel.api.restoreInput(formattedContent, lastInput.fileName);
-
-      // Content가 변경되었으면 DB 업데이트 (timestamp 유지)
-      if (formattedContent !== lastInput.content) {
-        await Storage.updateInputHistoryContent(lastInput.id, formattedContent);
-      }
-
-      this.executeQuery();
-    }
 
     // Initialize auto-play chip indicator
     this.inputPanel.api.setAutoPlayIndicator(this.outputPanel.api.isAutoPlayEnabled());
