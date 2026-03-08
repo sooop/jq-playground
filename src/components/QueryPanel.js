@@ -6,6 +6,21 @@ import { AutocompleteCache } from '../utils/autocomplete-cache.js';
 import { PipeAnalyzer } from '../utils/pipe-analyzer.js';
 
 const MAX_HISTORY = 100;
+const MAX_AUTOCOMPLETE_ITEMS = 15;
+
+// jq 함수 중 괄호 인수가 필요한 함수 목록
+const FUNCTIONS_WITH_ARGS = new Set([
+  'map', 'select', 'sort_by', 'group_by', 'unique_by', 'min_by', 'max_by',
+  'map_values', 'any', 'all', 'first', 'last', 'nth', 'until', 'while',
+  'repeat', 'limit', 'range', 'recurse', 'walk', 'path', 'del',
+  'getpath', 'setpath', 'delpaths', 'has', 'in', 'contains', 'inside',
+  'startswith', 'endswith', 'ltrimstr', 'rtrimstr', 'split', 'join',
+  'test', 'match', 'capture', 'splits', 'sub', 'gsub', 'scan',
+  'indices', 'index', 'rindex', 'pow', 'atan', 'combinations',
+  'strftime', 'strptime', 'format', 'isvalid', 'flatten', 'error', 'debug',
+  'reduce', 'foreach', 'label', 'ascii', 'utf8bytelength', 'with_entries',
+  'paths', 'leaf_paths', 'sql',
+]);
 
 // Helper function to read file
 function readFileContent(file) {
@@ -67,6 +82,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     <div class="panel-content autocomplete-container">
       <textarea id="query" placeholder="Enter jq query..."></textarea>
       <div class="autocomplete-list" id="autocompleteList"></div>
+      <div class="autocomplete-doc" id="autocompleteDoc"></div>
     </div>
   `;
 
@@ -108,12 +124,16 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   const savedQueriesSearch = savedQueriesList.querySelector('#savedQueriesSearch');
   const savedQueriesContent = savedQueriesList.querySelector('#savedQueriesContent');
   const autocompleteList = panel.querySelector('#autocompleteList');
+  const autocompleteDoc = panel.querySelector('#autocompleteDoc');
 
   // State
   let queryHistory = [];
   let savedQueries = Storage.getSavedQueries();
   let autocompleteItems = [];
   let selectedAutocompleteIndex = -1;
+  // Tab 순환 상태: zsh menu completion 방식
+  let originalWord = null;   // Tab 첫 입력 전 원래 단어
+  let tabWordStart = null;   // Tab 순환 시 단어 시작 위치
   // 마우스 이동 감지 변수
   let hoverLocked = false;
   let mouseMovementDetector = null;
@@ -135,6 +155,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   let lastInputHash = null;
   let updateDebounceTimer = null;
   const UPDATE_DEBOUNCE_DELAY = 300; // ms
+  let autocompleteUpdateId = 0;
 
   // Worker management functions
   function initWorker() {
@@ -338,13 +359,13 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   };
 
   // Event listeners
-  textarea.addEventListener('input', (e) => {
+  textarea.addEventListener('input', (_e) => {
     onQueryChange();
 
     // Invalidate context cache on input (when pipe position changes)
-    const pipeContext = getPipeContext();
-    if (pipeContext.hasPipe) {
-      const currentQuery = pipeContext.queryBeforePipe;
+    const pipeAnalysis = PipeAnalyzer.analyze(textarea.value, textarea.selectionStart);
+    if (pipeAnalysis.completedQuery) {
+      const currentQuery = pipeAnalysis.completedQuery;
       // Keep only current query's cache
       const currentCache = autocompleteCache.getContextKeys(currentQuery);
       autocompleteCache.invalidateContext();
@@ -378,12 +399,16 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         renderAutocomplete();
         return;
       } else if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) {
-        hideAutocomplete();
+        // 자동완성 닫지 않고 커서 이동 후 재필터링
+        setTimeout(() => updateAutocomplete(), 0);
         return;
       } else if (e.key === 'Tab' && autocompleteItems.length > 0) {
         e.preventDefault();
-        if (selectedAutocompleteIndex === -1) {
-          // 첫 Tab: 첫 번째 항목 선택
+        if (originalWord === null) {
+          // 첫 Tab: 원래 단어와 위치 저장 후 첫 항목 선택
+          const wordInfo = getCurrentWord();
+          originalWord = wordInfo.word;
+          tabWordStart = wordInfo.start;
           selectedAutocompleteIndex = e.shiftKey ? autocompleteItems.length - 1 : 0;
         } else if (e.shiftKey) {
           selectedAutocompleteIndex = selectedAutocompleteIndex <= 0
@@ -392,6 +417,8 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         } else {
           selectedAutocompleteIndex = (selectedAutocompleteIndex + 1) % autocompleteItems.length;
         }
+        // 즉시 텍스트 적용 (자동완성 유지)
+        applyAutocompleteInPlace(autocompleteItems[selectedAutocompleteIndex]);
         renderAutocomplete();
         return;
       } else if (e.key === 'Enter' && selectedAutocompleteIndex >= 0) {
@@ -401,6 +428,13 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         return;
       } else if (e.key === 'Escape') {
         e.preventDefault();
+        if (originalWord !== null) {
+          // Tab 순환 중이면 원래 단어 복원
+          const text = textarea.value;
+          const cursor = textarea.selectionStart;
+          textarea.value = text.substring(0, tabWordStart) + originalWord + text.substring(cursor);
+          textarea.selectionStart = textarea.selectionEnd = tabWordStart + originalWord.length;
+        }
         hideAutocomplete();
         return;
       }
@@ -949,47 +983,6 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   }
 
   /**
-   * Get pipe context - finds the last pipe before cursor and returns previous query
-   * Also detects function contexts like map(., select(., etc.
-   */
-  function getPipeContext() {
-    const text = textarea.value;
-    const cursor = textarea.selectionStart;
-
-    // Find last pipe before cursor
-    const textBeforeCursor = text.substring(0, cursor);
-    const lastPipeIndex = textBeforeCursor.lastIndexOf('|');
-
-    if (lastPipeIndex === -1) {
-      return { hasPipe: false, queryBeforePipe: '', textAfterPipe: textBeforeCursor, isInsideFunction: false };
-    }
-
-    const afterPipe = text.substring(lastPipeIndex + 1, cursor).trim();
-
-    // Detect field access inside functions like map(., select(., sort_by(., etc.
-    const funcMatch = afterPipe.match(
-      /^(map|select|sort_by|group_by|unique_by|min_by|max_by|map_values|any|all|first|last)\s*\(\s*([.{].*)?$/
-    );
-
-    if (funcMatch) {
-      return {
-        hasPipe: true,
-        queryBeforePipe: text.substring(0, lastPipeIndex).trim(),
-        textAfterPipe: funcMatch[2] || '.',
-        isInsideFunction: true,
-        functionName: funcMatch[1]
-      };
-    }
-
-    return {
-      hasPipe: true,
-      queryBeforePipe: text.substring(0, lastPipeIndex).trim(),
-      textAfterPipe: afterPipe,
-      isInsideFunction: false
-    };
-  }
-
-  /**
    * Filter and sort keys based on search term and context
    */
   function filterAndSortKeys(allKeys, contextKeys, searchTerm, hasPrefix, prefix) {
@@ -1039,7 +1032,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
         return a.name.localeCompare(b.name);
       })
-      .slice(0, 10);
+      .slice(0, MAX_AUTOCOMPLETE_ITEMS);
   }
 
   /**
@@ -1063,10 +1056,12 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     autocompleteItems = matches;
     selectedAutocompleteIndex = -1;
     renderAutocomplete();
+    positionAutocompleteList();
     autocompleteList.classList.add('show');
   }
 
   async function updateAutocomplete() {
+    const updateId = ++autocompleteUpdateId;
     const { word, isFieldAccess, isCursorAtWordEnd } = getCurrentWord();
 
     // 커서가 단어 끝이 아니면 자동완성 표시하지 않음
@@ -1103,6 +1098,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         autocompleteItems = matches;
         selectedAutocompleteIndex = -1;
         renderAutocomplete();
+        positionAutocompleteList();
         autocompleteList.classList.add('show');
       } else {
         hideAutocomplete();
@@ -1136,9 +1132,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       // Get input data
       const inputData = document.getElementById('input').value;
       if (!inputData) {
-        hideAutocomplete();
-        return;
-      }
+        // 입력 데이터 없으면 필드 자동완성 불가: 함수 자동완성으로 폴백 (isFieldAccess=false인 경우만)
+        if (isFieldAccess) {
+          hideAutocomplete();
+          return;
+        }
+        // isInsideObjectConstruction 등으로 needsFieldAutocomplete=true인 경우: 함수 자동완성 시도
+        // 아래 함수 자동완성 로직으로 진행 (return 생략)
+      } else {
 
       const inputHash = AutocompleteCache.hashInput(inputData);
       let contextKeys = [];
@@ -1166,12 +1167,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         }
 
         updateDebounceTimer = setTimeout(async () => {
+          if (updateId !== autocompleteUpdateId) return;
           try {
             // Request key extraction via Worker with progress updates
             const result = await requestKeyExtraction(inputData, {
               maxDepth: 8,
               sampleSize: 5,
               onProgress: (partialKeys, _currentDepth, _keysFound) => {
+                if (updateId !== autocompleteUpdateId) return;
                 // Update cache with partial results
                 autocompleteCache.updateInputKeys(partialKeys, inputHash, true);
 
@@ -1186,6 +1189,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
               }
             });
 
+            if (updateId !== autocompleteUpdateId) return;
             // Final update with complete results
             autocompleteCache.setInputKeys(result.keys, inputHash, false);
             inputKeys = result.keys;
@@ -1233,6 +1237,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
               2000 // 2 second timeout
             );
 
+            if (updateId !== autocompleteUpdateId) return;
             contextKeys = context.keys || [];
             autocompleteCache.setContextKeys(cacheKey, contextKeys, context.type);
           } catch (error) {
@@ -1247,13 +1252,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       let effectiveSearchTerm = searchTerm;
       let effectivePrefix = prefix;
       let effectiveHasPrefix = hasPrefix;
-      let isShorthandField = false;
 
       // Handle object construction shorthand (e.g., {name, age})
       if (analysis.isInsideObjectConstruction) {
         if (analysis.isShorthandPosition) {
           // Shorthand position: {name, a| - suggest field names without '.'
-          isShorthandField = true;
           effectiveSearchTerm = analysis.incompleteField || '';
           effectiveHasPrefix = false;
           effectivePrefix = '';
@@ -1285,12 +1288,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         ? [...new Set([...contextKeys, ...inputKeys])]
         : inputKeys;
 
+      if (updateId !== autocompleteUpdateId) return;
       if (allKeys.length > 0) {
         renderFieldAutocomplete(allKeys, contextKeys, effectiveSearchTerm, effectiveHasPrefix, effectivePrefix);
       } else {
         hideAutocomplete();
       }
       return;
+      } // closes else (inputData 있는 경우 블록)
     }
 
     if (word.length < 1) {
@@ -1312,9 +1317,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       return;
     }
 
+    if (updateId !== autocompleteUpdateId) return;
     autocompleteItems = matches;
     selectedAutocompleteIndex = -1;
     renderAutocomplete();
+    positionAutocompleteList();
     autocompleteList.classList.add('show');
   }
 
@@ -1370,7 +1377,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       const typeInfo = INPUT_TYPE_INFO[inputType] || INPUT_TYPE_INFO['any'];
       return `
         <div class="autocomplete-item ${index === selectedAutocompleteIndex ? 'selected' : ''}" data-index="${index}">
-          <span class="autocomplete-name">${escapeHtml(item.name)}</span>
+          <span class="autocomplete-name" title="${escapeHtml(item.name)}">${escapeHtml(truncatePath(item.name))}</span>
           <span class="autocomplete-type" style="color: ${typeInfo.color}">${typeInfo.label}</span>
           <span class="autocomplete-desc">${escapeHtml(item.desc)}</span>
         </div>
@@ -1393,6 +1400,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
           autocompleteList.querySelectorAll('.autocomplete-item').forEach((el, i) => {
             el.classList.toggle('selected', i === index);
           });
+          renderDoc(autocompleteItems[index]);
         }
       });
 
@@ -1415,22 +1423,49 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     if (selectedItem) {
       selectedItem.scrollIntoView({ block: 'nearest' });
     }
+
+    // Show doc panel for selected item
+    renderDoc(selectedAutocompleteIndex >= 0 ? autocompleteItems[selectedAutocompleteIndex] : null);
   }
 
   function applyAutocomplete(item) {
     const { start, end } = getCurrentWord();
     const text = textarea.value;
-    const newText = text.substring(0, start) + item.name + text.substring(end);
+
+    // 함수이고 괄호가 필요하면 '(' 자동 삽입 (단, 바로 다음 문자가 이미 '('이면 생략)
+    const isFunctionWithArgs = item.inputType !== 'field' && item.inputType !== 'variable'
+      && FUNCTIONS_WITH_ARGS.has(item.name);
+    const nextChar = text[end];
+    const insertParen = isFunctionWithArgs && nextChar !== '(';
+
+    const insertText = item.name + (insertParen ? '(' : '');
+    const newText = text.substring(0, start) + insertText + text.substring(end);
     textarea.value = newText;
-    textarea.selectionStart = textarea.selectionEnd = start + item.name.length;
+    textarea.selectionStart = textarea.selectionEnd = start + insertText.length;
     hideAutocomplete();
     onQueryChange();
   }
 
+  /**
+   * Tab 순환 중 즉시 텍스트 교체 (자동완성 유지)
+   * tabWordStart 기준으로 현재 커서까지를 item.name으로 대체
+   */
+  function applyAutocompleteInPlace(item) {
+    const text = textarea.value;
+    const cursor = textarea.selectionStart;
+    // tabWordStart부터 현재 커서(이전 항목 끝)까지 교체
+    textarea.value = text.substring(0, tabWordStart) + item.name + text.substring(cursor);
+    textarea.selectionStart = textarea.selectionEnd = tabWordStart + item.name.length;
+  }
+
   function hideAutocomplete() {
     autocompleteList.classList.remove('show');
+    autocompleteDoc.style.display = 'none';
     autocompleteItems = [];
     selectedAutocompleteIndex = -1;
+    // Tab 순환 상태 초기화
+    originalWord = null;
+    tabWordStart = null;
 
     // 이동 감지 리스너 정리
     if (mouseMovementDetector) {
@@ -1442,11 +1477,131 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     autocompleteList.classList.remove('hover-locked');
   }
 
+  function positionAutocompleteList() {
+    const caret = getCaretCoordinates(textarea, textarea.selectionStart);
+    const listW = autocompleteList.offsetWidth || 300;
+    const listH = Math.min(autocompleteList.scrollHeight || 200, 200);
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    let top = caret.y + caret.lineHeight;
+    let maxH = vh - top - 8;
+
+    if (top + listH > vh - 8) {
+      top = caret.y - listH;
+      maxH = caret.y - 8;
+      if (top < 4) { top = 4; maxH = vh - 8; }
+    }
+
+    let left = caret.x;
+    if (left + listW > vw - 8) left = vw - listW - 8;
+    if (left < 4) left = 4;
+
+    autocompleteList.style.top = top + 'px';
+    autocompleteList.style.left = left + 'px';
+    autocompleteList.style.maxHeight = Math.max(maxH, 80) + 'px';
+  }
+
+  function positionIfShowing() {
+    if (autocompleteList.classList.contains('show')) {
+      positionAutocompleteList();
+      positionDocPanel();
+    }
+  }
+
+  function positionDocPanel() {
+    if (autocompleteDoc.style.display === 'none' || !autocompleteDoc.style.display) return;
+    const listRect = autocompleteList.getBoundingClientRect();
+    const docW = autocompleteDoc.offsetWidth || 260;
+    const vw = window.innerWidth;
+    let left = listRect.right + 2;
+    if (left + docW > vw - 8) {
+      left = listRect.left - docW - 2;
+    }
+    if (left < 4) left = 4;
+    autocompleteDoc.style.top = listRect.top + 'px';
+    autocompleteDoc.style.left = left + 'px';
+    autocompleteDoc.style.maxHeight = autocompleteList.style.maxHeight;
+  }
+
+  function renderDoc(item) {
+    if (!item || (!item.signature && !item.example)) {
+      autocompleteDoc.style.display = 'none';
+      return;
+    }
+    autocompleteDoc.innerHTML = `
+      ${item.signature ? `<div class="autocomplete-doc-title">${escapeHtml(item.signature)}</div>` : ''}
+      ${item.desc ? `<div class="autocomplete-doc-desc">${escapeHtml(item.desc)}</div>` : ''}
+      ${item.example ? `<div class="autocomplete-doc-example">${escapeHtml(item.example)}</div>` : ''}
+    `;
+    autocompleteDoc.style.display = 'block';
+    positionDocPanel();
+  }
+
+  window.addEventListener('resize', positionIfShowing);
+  textarea.addEventListener('scroll', positionIfShowing);
+
   renderHistory();
   renderSavedQueries();
 
   panel.api = api;
   return panel;
+}
+
+/**
+ * 긴 경로명을 오른쪽 우선으로 truncate (jq 경로는 뒷부분이 중요)
+ * users[].profile.address.street.name → ...address.street.name
+ */
+function truncatePath(path, maxLen = 40) {
+  if (path.length <= maxLen) return path;
+  return '...' + path.slice(-(maxLen - 3));
+}
+
+/**
+ * textarea의 특정 위치(pos)에서 캐럿 좌표를 반환한다.
+ * @param {HTMLTextAreaElement} textarea
+ * @param {number} pos - selectionStart 값
+ * @returns {{ x: number, y: number, lineHeight: number }}
+ */
+function getCaretCoordinates(textarea, pos) {
+  const computed = window.getComputedStyle(textarea);
+  const taRect = textarea.getBoundingClientRect();
+
+  // Mirror div를 textarea 위치에 fixed로 겹쳐서 정확한 뷰포트 좌표 획득
+  const div = document.createElement('div');
+  div.style.cssText = 'position:fixed;visibility:hidden;white-space:pre-wrap;word-wrap:break-word;overflow:hidden;';
+  div.style.top = taRect.top + 'px';
+  div.style.left = taRect.left + 'px';
+  div.style.width = taRect.width + 'px';
+  div.style.height = taRect.height + 'px';
+
+  const copyProps = [
+    'font', 'fontSize', 'fontFamily', 'fontWeight', 'lineHeight',
+    'letterSpacing', 'wordSpacing', 'paddingTop', 'paddingRight',
+    'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth',
+    'borderBottomWidth', 'borderLeftWidth', 'boxSizing'
+  ];
+  copyProps.forEach(prop => {
+    div.style[prop] = computed[prop];
+  });
+
+  // textarea 스크롤 오프셋 반영
+  div.scrollTop = textarea.scrollTop;
+  div.scrollLeft = textarea.scrollLeft;
+
+  const textBefore = textarea.value.substring(0, pos);
+  div.textContent = textBefore;
+
+  const span = document.createElement('span');
+  span.textContent = '\u200b';
+  div.appendChild(span);
+
+  document.body.appendChild(div);
+  const spanRect = span.getBoundingClientRect();
+  const lineHeight = parseFloat(computed.lineHeight) || parseFloat(computed.fontSize) * 1.2;
+  document.body.removeChild(div);
+
+  return { x: spanRect.left, y: spanRect.top, lineHeight };
 }
 
 function escapeHtml(text) {
