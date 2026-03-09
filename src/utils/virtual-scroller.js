@@ -212,6 +212,7 @@ export class VirtualScroller {
     this.viewport.appendChild(fragment);
   }
 
+  /** @private */
   _escapeHtml(text) {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -283,6 +284,7 @@ export class VirtualScroller {
     return this._currentMatchIndex;
   }
 
+  /** @private */
   _scrollToCurrentMatch() {
     if (this._currentMatchIndex < 0 || this._currentMatchIndex >= this._allMatches.length) return;
 

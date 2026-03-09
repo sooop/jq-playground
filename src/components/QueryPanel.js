@@ -403,6 +403,20 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         setTimeout(() => updateAutocomplete(), 0);
         return;
       } else if (e.key === 'Tab' && autocompleteItems.length > 0) {
+        // 줄 시작 들여쓰기 컨텍스트면 Tab으로 들여쓰기 삽입
+        const textBeforeCursor = textarea.value.substring(0, textarea.selectionStart);
+        const lastNewlineIndex = textBeforeCursor.lastIndexOf('\n');
+        const textSinceNewline = textBeforeCursor.substring(lastNewlineIndex + 1);
+        if (/^\s*$/.test(textSinceNewline)) {
+          e.preventDefault();
+          const spaces = '  ';
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
+          textarea.value = textarea.value.substring(0, start) + spaces + textarea.value.substring(end);
+          textarea.selectionStart = textarea.selectionEnd = start + spaces.length;
+          updateAutocomplete();
+          return;
+        }
         e.preventDefault();
         if (originalWord === null) {
           // 첫 Tab: 원래 단어와 위치 저장 후 첫 항목 선택
@@ -1055,6 +1069,8 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
     autocompleteItems = matches;
     selectedAutocompleteIndex = -1;
+    originalWord = null;
+    tabWordStart = null;
     renderAutocomplete();
     positionAutocompleteList();
     autocompleteList.classList.add('show');
@@ -1320,6 +1336,8 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     if (updateId !== autocompleteUpdateId) return;
     autocompleteItems = matches;
     selectedAutocompleteIndex = -1;
+    originalWord = null;
+    tabWordStart = null;
     renderAutocomplete();
     positionAutocompleteList();
     autocompleteList.classList.add('show');

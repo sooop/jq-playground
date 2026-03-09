@@ -1,17 +1,41 @@
 import { createJqWorker, terminateJqWorker } from './jq-functions.js';
+/** @typedef {import('../types.js').ExecuteResult}  ExecuteResult  */
+/** @typedef {import('../types.js').ContextResult}  ContextResult  */
+/** @typedef {import('../types.js').FormatResult}   FormatResult   */
 
+/**
+ * Manages jq execution via a dedicated Web Worker with a main-thread fallback.
+ *
+ * Lifecycle:
+ * 1. Call `init()` once after `window.jq` is available.
+ * 2. Use `execute(input, query)` for normal evaluation.
+ * 3. Call `terminate()` on page unload.
+ */
 class JqEngine {
   constructor() {
-    this.instance = null;             // 메인 스레드 인스턴스 (executeForContext + 폴백)
+    /** @type {object|null} jq-web instance for main-thread execution */
+    this.instance = null;
+    /** @type {Worker|null} */
     this.worker = null;
+    /** @type {boolean} */
     this.workerReady = false;
+    /** @type {boolean} */
     this.workerFailed = false;
-    this.pendingRequests = new Map(); // id → { resolve, reject }
+    /** @type {Map<number, {resolve: function, reject: function}>} id → pending promise handlers */
+    this.pendingRequests = new Map();
+    /** @type {number} */
     this.requestIdCounter = 0;
-    this.messageQueue = [];           // ready 전 수신된 메시지 임시 보관
-    this._lastSentInput = null;       // Worker에 마지막으로 전송한 입력 (참조 비교)
+    /** @type {Array<object>} messages queued before the worker signals 'ready' */
+    this.messageQueue = [];
+    /** @type {string|null} last input sent to the worker (reference equality check) */
+    this._lastSentInput = null;
   }
 
+  /**
+   * Initialize the jq engine. Must be called once before `execute()`.
+   * @returns {Promise<true>}
+   * @throws {Error} if `window.jq` is not available or fails to load
+   */
   async init() {
     try {
       if (typeof window.jq === 'undefined') {
@@ -35,6 +59,7 @@ class JqEngine {
     }
   }
 
+  /** @private */
   _initWorker() {
     try {
       this.worker = createJqWorker();
@@ -55,6 +80,10 @@ class JqEngine {
     }
   }
 
+  /**
+   * @private
+   * @param {MessageEvent} e
+   */
   _handleWorkerMessage(e) {
     const msg = e.data;
     const { type, id, message } = msg;
@@ -107,6 +136,13 @@ class JqEngine {
     }
   }
 
+  /**
+   * Execute a jq query against a JSON input string.
+   * Routes to the Worker when available, otherwise falls back to the main thread.
+   * @param {string} input - JSON string to process
+   * @param {string} query - jq filter expression
+   * @returns {Promise<ExecuteResult>}
+   */
   async execute(input, query) {
     if (this.worker && !this.workerFailed) {
       return this._executeInWorker(input, query);
@@ -129,6 +165,12 @@ class JqEngine {
     }
   }
 
+  /**
+   * @private
+   * @param {string} input
+   * @param {string} query
+   * @returns {Promise<ExecuteResult>}
+   */
   _executeInWorker(input, query) {
     // 입력 변경 시에만 전송 (2MB+ 데이터 재전송 방지)
     this._sendInputIfChanged(input);
@@ -148,8 +190,8 @@ class JqEngine {
 
   /**
    * Worker에 포맷 변환 요청 (캐싱된 결과 사용)
-   * @param {string} format - 'json' or 'csv'
-   * @returns {Promise<{format, resultText?, html?, csv?}>}
+   * @param {'json'|'csv'} format
+   * @returns {Promise<FormatResult>}
    */
   formatResult(format) {
     if (!this.worker || this.workerFailed) {
@@ -167,6 +209,12 @@ class JqEngine {
     });
   }
 
+  /**
+   * @private
+   * @param {string} input
+   * @param {string} query
+   * @returns {Promise<ExecuteResult>}
+   */
   async _executeMainThread(input, query) {
     if (!this.instance) {
       throw new Error('jq engine not initialized');
@@ -210,7 +258,7 @@ class JqEngine {
    * @param {string} input - JSON input data
    * @param {string} partialQuery - Query before current pipe position
    * @param {number} maxDepth - Maximum depth for key extraction (default 8)
-   * @returns {Promise<{type: string, keys: string[]}>}
+   * @returns {Promise<ContextResult>}
    */
   async executeForContext(input, partialQuery, maxDepth = 8) {
     if (!this.instance) {
@@ -277,7 +325,7 @@ class JqEngine {
    * @param {string} input - JSON input data
    * @param {string} partialQuery - Query before current pipe position
    * @param {number} timeout - Timeout in milliseconds (default 2000)
-   * @returns {Promise<{type: string, keys: string[]}>}
+   * @returns {Promise<ContextResult>}
    */
   async executeForContextWithTimeout(input, partialQuery, timeout = 2000) {
     return Promise.race([

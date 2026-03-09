@@ -1,3 +1,4 @@
+/** @typedef {import('./types.js').PanelSizes} PanelSizes */
 import { createHeader } from './components/Header.js';
 import { createInputPanel } from './components/InputPanel.js';
 import { createQueryPanel } from './components/QueryPanel.js';
@@ -10,17 +11,34 @@ import { Storage } from './utils/storage.js';
 
 const RESIZE_STORAGE_KEY = 'jq-panel-resize';
 
+/**
+ * Root application controller. Wires together all panels, the jq engine,
+ * and storage. Created and initialized once from `main.js`.
+ */
 export class App {
   constructor() {
+    /** @type {number|null} debounce timer id for query execution */
     this.debounceTimer = null;
+    /** @type {HTMLElement|null} */
     this.inputPanel = null;
+    /** @type {HTMLElement|null} */
     this.queryPanel = null;
+    /** @type {HTMLElement|null} */
     this.outputPanel = null;
+    /** @type {HTMLElement|null} */
     this.modal = null;
+    /** @type {HTMLElement|null} */
     this.helpModal = null;
+    /** @type {HTMLElement|null} */
     this.cheatsheet = null;
+    /** @type {number} monotonically increasing counter to discard stale results */
+    this.executionGeneration = 0;
   }
 
+  /**
+   * Mount all components into `#app` and set up event wiring.
+   * @returns {Promise<void>}
+   */
   async init() {
     const app = document.getElementById('app');
 
@@ -154,11 +172,16 @@ export class App {
     });
   }
 
+  /** Execute once without changing auto-play state. */
   manualExecute() {
-    // Execute once without changing auto-play state
     this.executeQuery(true);
   }
 
+  /**
+   * Debounced query execution. Skips execution if auto-play is disabled
+   * unless `forceExecute` is true.
+   * @param {boolean} [forceExecute=false]
+   */
   executeQuery(forceExecute = false) {
     clearTimeout(this.debounceTimer);
 
@@ -252,6 +275,13 @@ export class App {
     }, debounceDelay);
   }
 
+  /**
+   * Attach mouse-drag listeners to the horizontal and vertical resizer elements.
+   * @param {HTMLElement} topPanel
+   * @param {HTMLElement} main
+   * @param {HTMLElement} hResizer
+   * @param {HTMLElement} vResizer
+   */
   initResizers(topPanel, main, hResizer, vResizer) {
     // Horizontal resizer (between input and query)
     let isResizingH = false;
@@ -297,6 +327,11 @@ export class App {
     });
   }
 
+  /**
+   * Persist current panel split ratios to localStorage.
+   * @param {HTMLElement} topPanel
+   * @param {HTMLElement} main
+   */
   savePanelSizes(topPanel, main) {
     try {
       const hColumns = topPanel.style.gridTemplateColumns;
@@ -316,6 +351,11 @@ export class App {
     }
   }
 
+  /**
+   * Restore panel split ratios from localStorage.
+   * @param {HTMLElement} topPanel
+   * @param {HTMLElement} main
+   */
   restorePanelSizes(topPanel, main) {
     try {
       const saved = localStorage.getItem(RESIZE_STORAGE_KEY);
@@ -335,6 +375,11 @@ export class App {
     }
   }
 
+  /**
+   * Extract top-level and nested keys from the current input JSON.
+   * Returns an empty array if the input is absent or invalid.
+   * @returns {string[]}
+   */
   getInputKeys() {
     try {
       const input = this.inputPanel.querySelector('#input').value;
@@ -346,6 +391,7 @@ export class App {
     }
   }
 
+  /** Populate the input and query panels with a built-in sample dataset. */
   loadSample() {
     const sampleData = {
       "users": [

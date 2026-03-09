@@ -1,4 +1,7 @@
 import { IndexedDBStorage } from './indexeddb-storage.js';
+/** @typedef {import('../types.js').InputHistoryEntry}  InputHistoryEntry  */
+/** @typedef {import('../types.js').QueryHistoryEntry}  QueryHistoryEntry  */
+/** @typedef {import('../types.js').SavedQuery}         SavedQuery         */
 
 const STORAGE_KEYS = {
   HISTORY: 'jq-history',
@@ -237,7 +240,8 @@ export class Storage {
   /**
    * Get input history
    * @param {number} limit - Maximum number of items
-   * @param {string} sortBy - Sort by 'timestamp' or 'lastUsed' (default: 'timestamp')
+   * @param {'timestamp'|'lastUsed'} sortBy - Sort field (default: 'timestamp')
+   * @returns {Promise<InputHistoryEntry[]>}
    */
   static async getInputHistory(limit = 50, sortBy = 'timestamp') {
     try {
@@ -257,6 +261,7 @@ export class Storage {
 
   /**
    * Get the last input (for session restoration)
+   * @returns {Promise<InputHistoryEntry|null>}
    */
   static async getLastInput() {
     try {
@@ -335,6 +340,7 @@ export class Storage {
   /**
    * Search input history by filename or content
    * @param {string} searchTerm - Search term
+   * @returns {Promise<InputHistoryEntry[]>}
    */
   static async searchInputHistory(searchTerm) {
     try {
@@ -399,6 +405,8 @@ export class Storage {
 
   /**
    * Get query history (IndexedDB)
+   * @param {number} limit
+   * @returns {Promise<QueryHistoryEntry[]>}
    */
   static async getQueryHistory(limit = 20) {
     try {
