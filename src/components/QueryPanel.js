@@ -787,7 +787,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
   function renderHistory(searchTerm = '') {
     if (queryHistory.length === 0) {
-      historyContent.innerHTML = '<div class="history-item" style="cursor: default; color: #999;">No history</div>';
+      historyContent.innerHTML = `<div class="history-empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 8v4l3 3"/>
+          <circle cx="12" cy="12" r="9"/>
+        </svg>
+        <span>히스토리가 없습니다</span>
+        <small>쿼리를 실행하면 여기에 기록됩니다</small>
+      </div>`;
       return;
     }
 
@@ -801,7 +808,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }
 
     if (filteredHistory.length === 0) {
-      historyContent.innerHTML = '<div class="history-item" style="cursor: default; color: #999;">No matching history</div>';
+      historyContent.innerHTML = `<div class="history-empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          <path d="M8 11h6"/>
+        </svg>
+        <span>검색 결과가 없습니다</span>
+        <small>"${escapeHtml(searchTerm)}"에 맞는 히스토리가 없습니다</small>
+      </div>`;
       return;
     }
 

@@ -545,6 +545,34 @@ select {
     border-bottom: none;
 }
 
+.history-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px 16px;
+    color: var(--text-muted, #666);
+    text-align: center;
+}
+
+.history-empty-state svg {
+    opacity: 0.4;
+    color: var(--text-muted, #888);
+}
+
+.history-empty-state span {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary, #888);
+}
+
+.history-empty-state small {
+    font-size: 11px;
+    color: var(--text-muted, #aaa);
+    opacity: 0.8;
+}
+
 /* Saved Queries */
 .saved-queries-list {
     min-width: 350px;

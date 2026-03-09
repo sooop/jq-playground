@@ -106,7 +106,16 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }
 
     if (items.length === 0) {
-      historyList.innerHTML = '<div class="dropdown-item">No history found</div>';
+      const isSearch = !!searchTerm;
+      historyList.innerHTML = `<div class="history-empty-state">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          ${isSearch
+            ? '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M8 11h6"/>'
+            : '<path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>'}
+        </svg>
+        <span>${isSearch ? '검색 결과가 없습니다' : '히스토리가 없습니다'}</span>
+        <small>${isSearch ? `"${searchTerm}"에 맞는 히스토리가 없습니다` : 'JSON 데이터를 입력하면 여기에 기록됩니다'}</small>
+      </div>`;
       return;
     }
 
