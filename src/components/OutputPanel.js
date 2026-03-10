@@ -466,6 +466,8 @@ export function createOutputPanel() {
 
     getFormat: () => formatSelect.value,
 
+    getLastResultText: () => lastResultText,
+
     clear: () => {
       output.textContent = '';
       lastResultData = null;

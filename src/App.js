@@ -148,7 +148,17 @@ export class App {
           this.outputPanel.api.showFormattedResult(result.html, 'csv', result.csv);
         }
       } catch {
-        // Worker 실패 시 폴백: 전체 재실행
+        // Worker 실패 시 폴백: 저장된 결과로 직접 변환 시도 후 재실행
+        if (format !== 'json') {
+          const lastText = this.outputPanel.api.getLastResultText();
+          if (lastText) {
+            try {
+              const parsedData = JSON.parse(lastText);
+              this.outputPanel.api.showResult(parsedData, format);
+              return;
+            } catch { /* 파싱 실패 시 재실행으로 진행 */ }
+          }
+        }
         this.executeQuery(true);
       }
     });
@@ -227,7 +237,6 @@ export class App {
       }
 
       const query = this.queryPanel.api.getQuery();
-      const format = this.outputPanel.api.getFormat();
 
       if (!input) {
         this.outputPanel.api.clear();
@@ -251,6 +260,11 @@ export class App {
         // Stale 체크: 이 사이에 새 실행이 시작되었으면 무시
         if (thisGeneration !== this.executionGeneration) return;
 
+        // execute 완료 후 포맷을 읽어야 한다.
+        // execute await 중 사용자가 포맷을 변경했을 경우,
+        // 변경된 포맷으로 결과를 표시해야 하기 때문.
+        const format = this.outputPanel.api.getFormat();
+
         this.queryPanel.api.addToHistory(query);
 
         // Worker가 resultText(stringify된 JSON)를 반환
@@ -263,9 +277,14 @@ export class App {
             if (thisGeneration !== this.executionGeneration) return;
             this.outputPanel.api.showFormattedResult(csvResult.html, 'csv', csvResult.csv, executionTime);
           } catch {
-            // 폴백: JSON 텍스트라도 표시
+            // Worker formatResult 실패 시 메인스레드에서 CSV 직접 생성
             if (thisGeneration !== this.executionGeneration) return;
-            this.outputPanel.api.showResultText(resultText, 'json', executionTime);
+            try {
+              const parsedData = JSON.parse(resultText);
+              this.outputPanel.api.showResult(parsedData, 'csv', executionTime);
+            } catch {
+              this.outputPanel.api.showResultText(resultText, 'json', executionTime);
+            }
           }
         }
       } catch (error) {
