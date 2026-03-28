@@ -278,7 +278,7 @@ export function createKeyExtractionWorker() {
           if (depth > currentDepth) {
             currentDepth = depth;
 
-            // Report progress periodically
+            // Report progress periodically (키 수만 전송, 전체 배열 복사 방지)
             const now = performance.now();
             if (now - lastProgressTime > PROGRESS_INTERVAL) {
               lastProgressTime = now;
@@ -286,8 +286,7 @@ export function createKeyExtractionWorker() {
                 type: 'progress',
                 id: id,
                 currentDepth: currentDepth,
-                keysFound: keys.size,
-                keys: Array.from(keys)
+                keysFound: keys.size
               });
             }
           }

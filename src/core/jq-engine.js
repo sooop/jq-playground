@@ -328,12 +328,17 @@ class JqEngine {
    * @returns {Promise<ContextResult>}
    */
   async executeForContextWithTimeout(input, partialQuery, timeout = 2000) {
-    return Promise.race([
-      this.executeForContext(input, partialQuery),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Context execution timeout')), timeout)
-      )
-    ]);
+    let timer;
+    try {
+      return await Promise.race([
+        this.executeForContext(input, partialQuery),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Context execution timeout')), timeout);
+        })
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }
 

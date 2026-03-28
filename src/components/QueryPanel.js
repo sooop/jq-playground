@@ -205,10 +205,8 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     resetWorkerIdleTimer();
 
     if (type === 'progress') {
-      // Progressive update
-      if (pending.onProgress && keys) {
-        pending.onProgress(keys, currentDepth, keysFound);
-      }
+      // Progress는 키 수만 보고 (전체 배열 복사 방지)
+      // UI 업데이트 불필요 — 최종 result에서 한 번에 처리
     } else if (type === 'result') {
       // Complete result
       pending.resolve({ keys, stats });
@@ -245,8 +243,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
       pendingExtractions.set(id, {
         resolve,
-        reject,
-        onProgress: options.onProgress
+        reject
       });
 
       keyExtractionWorker.postMessage({
@@ -1202,21 +1199,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
             // Request key extraction via Worker with progress updates
             const result = await requestKeyExtraction(inputData, {
               maxDepth: 8,
-              sampleSize: 5,
-              onProgress: (partialKeys, _currentDepth, _keysFound) => {
-                if (updateId !== autocompleteUpdateId) return;
-                // Update cache with partial results
-                autocompleteCache.updateInputKeys(partialKeys, inputHash, true);
-
-                // Re-render with new keys (without flickering)
-                const { word: currentWord, isFieldAccess: stillFieldAccess } = getCurrentWord();
-                if (stillFieldAccess) {
-                  const ctx = getFieldAccessContext();
-                  const term = ctx.currentSegment || currentWord;
-                  const allKeys = [...new Set([...partialKeys, ...contextKeys])];
-                  renderFieldAutocomplete(allKeys, contextKeys, term, ctx.hasPrefix, ctx.prefix);
-                }
-              }
+              sampleSize: 5
             });
 
             if (updateId !== autocompleteUpdateId) return;
@@ -1358,13 +1341,18 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   }
 
   function setupMouseMovementDetection() {
+    // 이전 리스너가 남아있으면 먼저 제거 (누적 방지)
+    if (mouseMovementDetector) {
+      document.removeEventListener('mousemove', mouseMovementDetector);
+      mouseMovementDetector = null;
+    }
+
     hoverLocked = true;
     autocompleteList.classList.add('hover-locked');
 
     // 초기 마우스 위치 캡처
     const captureInitialPosition = (e) => {
       initialMousePosition = { x: e.clientX, y: e.clientY };
-      document.removeEventListener('mousemove', captureInitialPosition);
     };
     document.addEventListener('mousemove', captureInitialPosition, { once: true });
 
