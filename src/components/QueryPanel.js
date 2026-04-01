@@ -889,13 +889,16 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
     // Check if there's a '.' immediately before the word (field access)
     const charBeforeWord = start > 0 ? text[start - 1] : '';
-    const isFieldAccess = charBeforeWord === '.';
+    // Also check if cursor is right after a dot (e.g., top-level "." input)
+    const isAfterDot = cursor > 0 && text[cursor - 1] === '.';
+    const word = text.substring(start, end);
+    const isFieldAccess = charBeforeWord === '.' || (isAfterDot && word === '');
 
     // Check if cursor is at the end of the word
     const isCursorAtWordEnd = cursor === end;
 
     return {
-      word: text.substring(start, end),
+      word: word,
       start: start,
       end: end,
       isFieldAccess: isFieldAccess,
