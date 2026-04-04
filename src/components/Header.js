@@ -1,6 +1,6 @@
 import { Storage } from '../utils/storage.js';
 
-export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp) {
+export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp, onToggleSnippets) {
   const header = document.createElement('div');
   header.className = 'header';
   header.innerHTML = `
@@ -9,6 +9,7 @@ export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp) {
       <button id="themeToggleBtn" class="theme-toggle" title="Toggle dark mode">☀️</button>
       <button id="helpBtn">Help</button>
       <button id="loadSampleBtn">Load Sample</button>
+      <button id="toggleSnippetsBtn">Snippets</button>
       <button id="toggleSyntaxBtn">Syntax</button>
       <a href="https://jqlang.github.io/jq/manual/" target="_blank" style="text-decoration: none;">
         <button>Manual</button>
@@ -69,6 +70,7 @@ export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp) {
 
   header.querySelector('#helpBtn').addEventListener('click', onShowHelp);
   header.querySelector('#loadSampleBtn').addEventListener('click', onLoadSample);
+  header.querySelector('#toggleSnippetsBtn').addEventListener('click', onToggleSnippets);
   header.querySelector('#toggleSyntaxBtn').addEventListener('click', onToggleCheatsheet);
 
   return header;

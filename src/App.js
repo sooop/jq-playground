@@ -5,6 +5,7 @@ import { createQueryPanel } from './components/QueryPanel.js';
 import { createOutputPanel } from './components/OutputPanel.js';
 import { createSaveQueryModal, createHelpModal } from './components/Modal.js';
 import { createCheatsheet } from './components/Cheatsheet.js';
+import { createSnippets } from './components/Snippets.js';
 import { jqEngine } from './core/jq-engine.js';
 import { extractKeys } from './core/jq-functions.js';
 import { Storage } from './utils/storage.js';
@@ -31,6 +32,8 @@ export class App {
     this.helpModal = null;
     /** @type {HTMLElement|null} */
     this.cheatsheet = null;
+    /** @type {HTMLElement|null} */
+    this.snippets = null;
     /** @type {number} monotonically increasing counter to discard stale results */
     this.executionGeneration = 0;
   }
@@ -57,7 +60,8 @@ export class App {
     const header = createHeader(
       () => this.loadSample(),
       () => this.cheatsheet.api.toggle(),
-      () => this.helpModal.api.show()
+      () => this.helpModal.api.show(),
+      () => this.snippets.api.toggle()
     );
 
     this.inputPanel = createInputPanel(
@@ -94,6 +98,13 @@ export class App {
       this.executeQuery();
     });
 
+    this.snippets = createSnippets((query) => {
+      const queryTextarea = this.queryPanel.querySelector('#query');
+      queryTextarea.value = query;
+      queryTextarea.focus();
+      this.executeQuery();
+    });
+
     // Build layout
     const container = document.createElement('div');
     container.className = 'container';
@@ -126,6 +137,7 @@ export class App {
     this.restorePanelSizes(topPanel, main);
 
     container.appendChild(header);
+    container.appendChild(this.snippets);
     container.appendChild(this.cheatsheet);
     container.appendChild(main);
 
