@@ -1,4 +1,4 @@
-import { IndexedDBStorage } from './indexeddb-storage.js';
+import { IndexedDBStorage } from './indexeddb-storage';
 /** @typedef {import('../types.js').InputHistoryEntry}  InputHistoryEntry  */
 /** @typedef {import('../types.js').QueryHistoryEntry}  QueryHistoryEntry  */
 /** @typedef {import('../types.js').SavedQuery}         SavedQuery         */
@@ -250,7 +250,7 @@ export class Storage {
       } else {
         const history = Storage._getInputHistoryFromLocalStorage();
         // Sort by specified field
-        history.sort((a, b) => new Date(b[sortBy]) - new Date(a[sortBy]));
+        history.sort((a, b) => new Date(b[sortBy] as string).getTime() - new Date(a[sortBy] as string).getTime());
         return history.slice(0, limit);
       }
     } catch (error) {

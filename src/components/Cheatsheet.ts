@@ -1,4 +1,5 @@
-import { INPUT_TYPE_INFO } from '../core/jq-functions.js';
+import { INPUT_TYPE_INFO } from '../core/jq-functions';
+import type { ComponentElement, PanelToggleApi } from '../types';
 
 const CHEATSHEET_CATEGORIES = {
   basic: {
@@ -232,8 +233,9 @@ function escapeHtml(text) {
 }
 
 export function createCheatsheet(onQuerySelect) {
-  const container = document.createElement('div');
-  container.className = 'cheatsheet-container';
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'cheatsheetModal';
 
   // Generate tabs HTML
   const categoryKeys = Object.keys(CHEATSHEET_CATEGORIES);
@@ -263,8 +265,12 @@ export function createCheatsheet(onQuerySelect) {
     </div>`;
   }).join('');
 
-  container.innerHTML = `
-    <div class="cheatsheet">
+  overlay.innerHTML = `
+    <div class="modal cheatsheet-modal">
+      <div class="modal-header">
+        <div class="modal-title">Syntax Reference</div>
+        <button class="modal-close-btn" id="cheatsheetCloseBtn">✕</button>
+      </div>
       <div class="cheatsheet-tabs">
         ${tabsHTML}
       </div>
@@ -274,43 +280,47 @@ export function createCheatsheet(onQuerySelect) {
     </div>
   `;
 
-  const cheatsheet = container.querySelector('.cheatsheet');
+  const closeBtn = overlay.querySelector<HTMLButtonElement>('#cheatsheetCloseBtn')!;
 
-  // Cheatsheet tab switching
-  container.querySelectorAll('.cheatsheet-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      const category = tab.dataset.category;
-
-      // Update active tab
-      container.querySelectorAll('.cheatsheet-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      // Update active category
-      container.querySelectorAll('.cheatsheet-category').forEach(c => c.classList.remove('active'));
-      container.querySelector(`.cheatsheet-category[data-category="${category}"]`).classList.add('active');
-    });
-  });
-
-  // Cheatsheet items
-  container.querySelectorAll('.cheatsheet-item').forEach(item => {
-    item.addEventListener('click', () => {
-      const query = item.dataset.query;
-      onQuerySelect(query);
-    });
-  });
-
-  // Public API
-  container.api = {
-    toggle: () => {
-      cheatsheet.classList.toggle('open');
-    },
-    close: () => {
-      cheatsheet.classList.remove('open');
-    },
-    open: () => {
-      cheatsheet.classList.add('open');
-    }
+  const api: PanelToggleApi = {
+    toggle: () => overlay.classList.toggle('show'),
+    open: () => overlay.classList.add('show'),
+    close: () => overlay.classList.remove('show'),
   };
 
-  return container;
+  closeBtn.addEventListener('click', () => api.close());
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) api.close();
+  });
+
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && overlay.classList.contains('show')) {
+      api.close();
+    }
+  });
+
+  // Tab switching
+  overlay.querySelectorAll<HTMLElement>('.cheatsheet-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const category = tab.dataset.category;
+      overlay.querySelectorAll('.cheatsheet-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      overlay.querySelectorAll('.cheatsheet-category').forEach(c => c.classList.remove('active'));
+      overlay.querySelector(`.cheatsheet-category[data-category="${category}"]`)?.classList.add('active');
+    });
+  });
+
+  // Item click
+  overlay.querySelectorAll<HTMLElement>('.cheatsheet-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const query = item.dataset.query;
+      onQuerySelect(query!);
+      api.close();
+    });
+  });
+
+  const el = overlay as unknown as ComponentElement<PanelToggleApi>;
+  el.api = api;
+  return el;
 }

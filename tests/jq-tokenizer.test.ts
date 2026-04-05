@@ -5,7 +5,7 @@ import {
   splitTokensByPipe,
   computeNesting,
   tokenIndexAtCursor,
-} from '../src/utils/jq-tokenizer.js';
+} from '../src/utils/jq-tokenizer';
 
 /** 공백 제거 후 토큰 타입만 추출 */
 function types(input) {

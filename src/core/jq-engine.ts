@@ -1,7 +1,7 @@
-import { createJqWorker, terminateJqWorker } from './jq-functions.js';
-/** @typedef {import('../types.js').ExecuteResult}  ExecuteResult  */
-/** @typedef {import('../types.js').ContextResult}  ContextResult  */
-/** @typedef {import('../types.js').FormatResult}   FormatResult   */
+import { createJqWorker, terminateJqWorker } from './jq-functions';
+import type { BlobWorker } from './jq-functions';
+import type { ExecuteResult, FormatResult } from '../types';
+import type { JqInstance } from '../jq-web';
 
 /**
  * Manages jq execution via a dedicated Web Worker with a main-thread fallback.
@@ -12,23 +12,16 @@ import { createJqWorker, terminateJqWorker } from './jq-functions.js';
  * 3. Call `terminate()` on page unload.
  */
 class JqEngine {
+  private instance: JqInstance | null = null;
+  private worker: BlobWorker | null = null;
+  private workerReady = false;
+  private workerFailed = false;
+  private pendingRequests = new Map<number, { resolve: (v: ExecuteResult | FormatResult) => void; reject: (e: Error) => void }>();
+  private requestIdCounter = 0;
+  private messageQueue: object[] = [];
+  private _lastSentInput: string | null = null;
+
   constructor() {
-    /** @type {object|null} jq-web instance for main-thread execution */
-    this.instance = null;
-    /** @type {Worker|null} */
-    this.worker = null;
-    /** @type {boolean} */
-    this.workerReady = false;
-    /** @type {boolean} */
-    this.workerFailed = false;
-    /** @type {Map<number, {resolve: function, reject: function}>} id → pending promise handlers */
-    this.pendingRequests = new Map();
-    /** @type {number} */
-    this.requestIdCounter = 0;
-    /** @type {Array<object>} messages queued before the worker signals 'ready' */
-    this.messageQueue = [];
-    /** @type {string|null} last input sent to the worker (reference equality check) */
-    this._lastSentInput = null;
   }
 
   /**
@@ -267,7 +260,7 @@ class JqEngine {
 
     try {
       // worker 경유 실행 — JSON.parse + WASM이 메인 스레드를 블로킹하지 않음
-      const execResult = await this.execute(input, partialQuery);
+      const execResult = await this.execute(input, partialQuery) as ExecuteResult;
       // Worker 경로는 resultText만 반환, 메인스레드는 result도 반환
       const result = execResult.result !== undefined
         ? execResult.result

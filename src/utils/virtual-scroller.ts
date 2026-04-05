@@ -15,11 +15,35 @@ const LINE_HEIGHT = 18; // px, matches monospace font
 const BUFFER_LINES = 30; // extra lines above/below viewport
 const ACTIVATION_THRESHOLD = 5000; // lines; below this, render directly
 
+interface MatchEntry {
+  lineIndex: number;
+  start: number;
+  end: number;
+  text: string;
+  globalIndex: number;
+}
+
 export class VirtualScroller {
+  container: HTMLElement;
+  lines: string[];
+  totalLines: number;
+  active: boolean;
+  spacer: HTMLDivElement;
+  viewport: HTMLDivElement;
+  _startLine: number;
+  _endLine: number;
+  _rafId: number | null;
+  _searchHighlightLines: Set<number> | null;
+  _searchQuery: string | null;
+  _currentMatchIndex: number;
+  _allMatches: MatchEntry[];
+  _onScroll: () => void;
+  _onKeyDown: ((e: KeyboardEvent) => void) | null;
+
   /**
-   * @param {HTMLElement} container - The scroll container element
+   * @param container - The scroll container element
    */
-  constructor(container) {
+  constructor(container: HTMLElement) {
     this.container = container;
     this.lines = [];
     this.totalLines = 0;
@@ -49,6 +73,7 @@ export class VirtualScroller {
     this._allMatches = []; // [{lineIndex, start, end, text}]
 
     // Scroll handler
+    this._onKeyDown = null;
     this._onScroll = () => {
       if (this._rafId) return;
       this._rafId = requestAnimationFrame(() => {
@@ -60,9 +85,9 @@ export class VirtualScroller {
 
   /**
    * Set lines and activate/deactivate virtual scrolling.
-   * @param {string[]} lines - Array of text lines
+   * @param lines - Array of text lines
    */
-  setLines(lines) {
+  setLines(lines: string[]) {
     this.lines = lines;
     this.totalLines = lines.length;
     this._searchQuery = null;
@@ -78,9 +103,9 @@ export class VirtualScroller {
 
   /**
    * Set text content (will split into lines).
-   * @param {string} text - Full text content
+   * @param text - Full text content
    */
-  setText(text) {
+  setText(text: string) {
     this.setLines(text.split('\n'));
   }
 
@@ -99,7 +124,7 @@ export class VirtualScroller {
     this.container.addEventListener('scroll', this._onScroll, { passive: true });
 
     // Ctrl+A handler — copy all to clipboard
-    this._onKeyDown = (e) => {
+    this._onKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
         e.preventDefault();
         const fullText = this.lines.join('\n');
@@ -154,7 +179,7 @@ export class VirtualScroller {
     }
   }
 
-  _renderPlain(startLine, endLine) {
+  _renderPlain(startLine: number, endLine: number) {
     const fragment = document.createDocumentFragment();
     for (let i = startLine; i < endLine; i++) {
       const lineEl = document.createElement('div');
@@ -168,19 +193,19 @@ export class VirtualScroller {
     this.viewport.appendChild(fragment);
   }
 
-  _renderWithHighlight(startLine, endLine) {
+  _renderWithHighlight(startLine: number, endLine: number) {
     const fragment = document.createDocumentFragment();
     const visibleMatches = this._allMatches.filter(
       m => m.lineIndex >= startLine && m.lineIndex < endLine
     );
 
     // Group matches by line
-    const matchesByLine = new Map();
+    const matchesByLine = new Map<number, MatchEntry[]>();
     for (const m of visibleMatches) {
       if (!matchesByLine.has(m.lineIndex)) {
         matchesByLine.set(m.lineIndex, []);
       }
-      matchesByLine.get(m.lineIndex).push(m);
+      matchesByLine.get(m.lineIndex)!.push(m);
     }
 
     for (let i = startLine; i < endLine; i++) {
@@ -213,16 +238,16 @@ export class VirtualScroller {
   }
 
   /** @private */
-  _escapeHtml(text) {
+  _escapeHtml(text: string): string {
     return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   /**
    * Perform search across all lines.
-   * @param {string} query - Search term
-   * @returns {{total: number}} Match count info
+   * @param query - Search term
+   * @returns Match count info
    */
-  search(query) {
+  search(query: string): { total: number } {
     this._allMatches = [];
     this._currentMatchIndex = -1;
     this._searchQuery = query;
@@ -264,9 +289,9 @@ export class VirtualScroller {
 
   /**
    * Navigate to next match.
-   * @returns {number} Current match index (0-based), or -1
+   * @returns Current match index (0-based), or -1
    */
-  nextMatch() {
+  nextMatch(): number {
     if (this._allMatches.length === 0) return -1;
     this._currentMatchIndex = (this._currentMatchIndex + 1) % this._allMatches.length;
     this._scrollToCurrentMatch();
@@ -275,9 +300,9 @@ export class VirtualScroller {
 
   /**
    * Navigate to previous match.
-   * @returns {number} Current match index (0-based), or -1
+   * @returns Current match index (0-based), or -1
    */
-  prevMatch() {
+  prevMatch(): number {
     if (this._allMatches.length === 0) return -1;
     this._currentMatchIndex = (this._currentMatchIndex - 1 + this._allMatches.length) % this._allMatches.length;
     this._scrollToCurrentMatch();
@@ -299,9 +324,9 @@ export class VirtualScroller {
 
   /**
    * Get current match info for display.
-   * @returns {{current: number, total: number}|null}
+   * @returns Match info or null
    */
-  getMatchInfo() {
+  getMatchInfo(): { current: number; total: number } | null {
     if (this._allMatches.length === 0) return null;
     return {
       current: this._currentMatchIndex + 1,
@@ -311,9 +336,8 @@ export class VirtualScroller {
 
   /**
    * Get all text (for copy operations).
-   * @returns {string}
    */
-  getFullText() {
+  getFullText(): string {
     return this.lines.join('\n');
   }
 

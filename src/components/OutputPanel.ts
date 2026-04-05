@@ -1,6 +1,7 @@
-import { jsonToHTML, jsonToCSV } from '../core/csv-converter.js';
-import { downloadText } from '../core/file-handler.js';
-import { VirtualScroller } from '../utils/virtual-scroller.js';
+import { jsonToHTML, jsonToCSV } from '../core/csv-converter';
+import { downloadText } from '../core/file-handler';
+import { VirtualScroller } from '../utils/virtual-scroller';
+import type { OutputPanelElement, FormatResult } from '../types';
 
 export function createOutputPanel() {
   const panel = document.createElement('div');
@@ -33,39 +34,39 @@ export function createOutputPanel() {
     <div class="error-toast" id="errorToast"></div>
   `;
 
-  const output = panel.querySelector('#output');
-  const errorBanner = panel.querySelector('#errorBanner');
-  const autoPlayBtn = panel.querySelector('#autoPlayBtn');
-  const formatSelect = panel.querySelector('#formatSelect');
-  const copyBtn = panel.querySelector('#copyBtn');
-  const downloadBtn = panel.querySelector('#downloadBtn');
-  const lastRunTime = panel.querySelector('#lastRunTime');
-  const statsBar = panel.querySelector('#statsBar');
-  const searchBar = panel.querySelector('#searchBar');
-  const searchInput = panel.querySelector('#searchInput');
-  const searchInfo = panel.querySelector('#searchInfo');
-  const searchPrevBtn = panel.querySelector('#searchPrevBtn');
-  const searchNextBtn = panel.querySelector('#searchNextBtn');
-  const searchCloseBtn = panel.querySelector('#searchCloseBtn');
+  const output = panel.querySelector<HTMLElement>('#output')!;
+  const errorBanner = panel.querySelector<HTMLElement>('#errorBanner')!;
+  const autoPlayBtn = panel.querySelector<HTMLButtonElement>('#autoPlayBtn')!;
+  const formatSelect = panel.querySelector<HTMLSelectElement>('#formatSelect')!;
+  const copyBtn = panel.querySelector<HTMLButtonElement>('#copyBtn')!;
+  const downloadBtn = panel.querySelector<HTMLButtonElement>('#downloadBtn')!;
+  const lastRunTime = panel.querySelector<HTMLElement>('#lastRunTime')!;
+  const statsBar = panel.querySelector<HTMLElement>('#statsBar')!;
+  const searchBar = panel.querySelector<HTMLElement>('#searchBar')!;
+  const searchInput = panel.querySelector<HTMLInputElement>('#searchInput')!;
+  const searchInfo = panel.querySelector<HTMLElement>('#searchInfo')!;
+  const searchPrevBtn = panel.querySelector<HTMLButtonElement>('#searchPrevBtn')!;
+  const searchNextBtn = panel.querySelector<HTMLButtonElement>('#searchNextBtn')!;
+  const searchCloseBtn = panel.querySelector<HTMLButtonElement>('#searchCloseBtn')!;
 
-  let lastResultData = null;
-  let lastResultText = null;  // Worker에서 받은 JSON.stringify 결과 (텍스트)
-  let lastCsvCache = null;
-  let errorTimeout = null;
+  let lastResultData: unknown = null;
+  let lastResultText: string | null = null;  // Worker에서 받은 JSON.stringify 결과 (텍스트)
+  let lastCsvCache: string | null = null;
+  let errorTimeout: ReturnType<typeof setTimeout> | null = null;
   let autoPlayEnabled = true;
-  let searchMatches = [];
+  let searchMatches: Array<{ start: number; end: number; text: string }> = [];
   let currentMatchIndex = -1;
   let originalOutputHTML = '';
   let isInErrorState = false;
-  let searchDebounceTimer = null;
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Virtual scroller for large JSON output
   const virtualScroller = new VirtualScroller(output);
   let isVirtualScrollActive = false;
 
   // Helper function to generate stats
-  function generateStats(data, executionTime) {
-    const stats = [];
+  function generateStats(data: unknown, executionTime: number | undefined) {
+    const stats: string[] = [];
 
     // Execution time
     if (executionTime !== undefined) {
@@ -81,10 +82,10 @@ export function createOutputPanel() {
     if (Array.isArray(data)) {
       stats.push(`<span class="stat-item">${data.length} items</span>`);
     } else if (data && typeof data === 'object') {
-      const keys = Object.keys(data);
+      const keys = Object.keys(data as object);
       stats.push(`<span class="stat-item">${keys.length} keys</span>`);
     } else if (typeof data === 'string') {
-      stats.push(`<span class="stat-item">${data.length} chars</span>`);
+      stats.push(`<span class="stat-item">${(data as string).length} chars</span>`);
     } else if (typeof data === 'number') {
       stats.push(`<span class="stat-item">${data}</span>`);
     }
@@ -98,11 +99,11 @@ export function createOutputPanel() {
   });
 
   // Search functions
-  function escapeRegExp(string) {
+  function escapeRegExp(string: string) {
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
-  function toggleSearch(show) {
+  function toggleSearch(show: boolean) {
     if (show) {
       searchBar.classList.add('show');
       searchInput.focus();
@@ -156,13 +157,13 @@ export function createOutputPanel() {
 
     // 일반 모드: 기존 검색 로직
     if (!originalOutputHTML) {
-      originalOutputHTML = output.textContent;
+      originalOutputHTML = output.textContent!;
     }
 
     const text = originalOutputHTML;
     const regex = new RegExp(escapeRegExp(query), 'gi');
     searchMatches = [];
-    let match;
+    let match: RegExpExecArray | null;
 
     while ((match = regex.exec(text)) !== null) {
       searchMatches.push({
@@ -210,7 +211,7 @@ export function createOutputPanel() {
     }
   }
 
-  function escapeHtmlText(text) {
+  function escapeHtmlText(text: string) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
@@ -252,13 +253,13 @@ export function createOutputPanel() {
 
   // Search event listeners (200ms 디바운스)
   searchInput.addEventListener('input', () => {
-    clearTimeout(searchDebounceTimer);
+    if (searchDebounceTimer !== null) clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(() => {
       performSearch();
     }, 200);
   });
 
-  searchInput.addEventListener('keydown', (e) => {
+  searchInput.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -277,7 +278,7 @@ export function createOutputPanel() {
   searchCloseBtn.addEventListener('click', () => toggleSearch(false));
 
   // Ctrl+F to open search
-  panel.addEventListener('keydown', (e) => {
+  panel.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.ctrlKey && e.key === 'f') {
       e.preventDefault();
       toggleSearch(true);
@@ -297,7 +298,7 @@ export function createOutputPanel() {
      * 기존 호환 API: raw 객체를 받아서 메인스레드에서 stringify
      * (폴백 전용 — Worker가 실패했을 때만 사용)
      */
-    showResult: (data, format, executionTime) => {
+    showResult: (data: unknown, format: string, executionTime?: number) => {
       lastResultData = data;
       lastResultText = null;
       lastCsvCache = null;
@@ -332,7 +333,7 @@ export function createOutputPanel() {
     /**
      * Worker에서 받은 stringify된 텍스트로 결과 표시 (메인스레드 stringify 제거)
      */
-    showResultText: (resultText, format, executionTime) => {
+    showResultText: (resultText: string, format: string, executionTime?: number) => {
       lastResultData = null;
       lastResultText = resultText;
       lastCsvCache = null;
@@ -359,7 +360,7 @@ export function createOutputPanel() {
         const timeStr = executionTime < 1 ? '<1ms' : `${executionTime.toFixed(1)}ms`;
         statsHtml += `<span class="stat-item stat-time">${timeStr}</span>`;
       }
-      statsHtml += `<span class="stat-item stat-type">json</span>`;
+      statsHtml += `<span class="stat-item stat-type">${format}</span>`;
       if (isVirtualScrollActive) {
         statsHtml += `<span class="stat-item">${virtualScroller.totalLines.toLocaleString()} lines</span>`;
       }
@@ -371,7 +372,7 @@ export function createOutputPanel() {
     /**
      * Worker에서 포맷 변환된 결과 표시 (formatResult 응답)
      */
-    showFormattedResult: (content, format, csvCache, executionTime) => {
+    showFormattedResult: (content: string, format: string, csvCache?: string, executionTime?: number) => {
       originalOutputHTML = '';
       clearSearch();
 
@@ -404,8 +405,8 @@ export function createOutputPanel() {
       api.hideError();
     },
 
-    showError: (message, autoHideDuration = 5000) => {
-      const errorToast = panel.querySelector('#errorToast');
+    showError: (message: string, autoHideDuration: number | false = 5000) => {
+      const errorToast = panel.querySelector<HTMLElement>('#errorToast')!;
       errorToast.textContent = message;
       errorToast.classList.add('show');
       isInErrorState = true;
@@ -451,7 +452,7 @@ export function createOutputPanel() {
 
     hideError: () => {
       if (errorTimeout) clearTimeout(errorTimeout);
-      const errorToast = panel.querySelector('#errorToast');
+      const errorToast = panel.querySelector<HTMLElement>('#errorToast')!;
       errorToast.classList.remove('show');
       errorBanner.classList.remove('show');
       isInErrorState = false;
@@ -497,8 +498,9 @@ export function createOutputPanel() {
       }
 
       // Trigger callback when auto-play is enabled
-      if (autoPlayEnabled && panel.onAutoPlayToggle) {
-        panel.onAutoPlayToggle(autoPlayEnabled);
+      const el = panel as unknown as OutputPanelElement;
+      if (autoPlayEnabled && el.onAutoPlayToggle) {
+        el.onAutoPlayToggle(autoPlayEnabled);
       }
 
       return autoPlayEnabled;
@@ -512,7 +514,7 @@ export function createOutputPanel() {
 
   copyBtn.addEventListener('click', () => {
     const format = formatSelect.value;
-    let text;
+    let text: string;
 
     if (format === 'csv' && lastCsvCache) {
       text = lastCsvCache;
@@ -524,11 +526,11 @@ export function createOutputPanel() {
     } else if (lastResultText) {
       text = lastResultText;
     } else {
-      text = output.textContent;
+      text = output.textContent!;
     }
 
     navigator.clipboard.writeText(text).then(() => {
-      const originalText = copyBtn.textContent;
+      const originalText = copyBtn.textContent!;
       copyBtn.textContent = 'Copied!';
       setTimeout(() => {
         copyBtn.textContent = originalText;
@@ -538,10 +540,10 @@ export function createOutputPanel() {
 
   downloadBtn.addEventListener('click', async () => {
     const format = formatSelect.value;
-    let text;
+    let text: string | undefined;
 
     if (format === 'json') {
-      text = lastResultText || output.textContent;
+      text = lastResultText || output.textContent || undefined;
     } else if (format === 'csv') {
       if (lastCsvCache) {
         text = lastCsvCache;
@@ -553,9 +555,9 @@ export function createOutputPanel() {
         try {
           downloadBtn.textContent = 'Generating...';
           downloadBtn.disabled = true;
-          const { jqEngine } = await import('../core/jq-engine.js');
-          const result = await jqEngine.formatResult('csv');
-          lastCsvCache = result.csv;
+          const { jqEngine } = await import('../core/jq-engine');
+          const result = await jqEngine.formatResult('csv') as FormatResult;
+          lastCsvCache = result.csv ?? null;
           text = result.csv;
         } catch {
           api.showError('CSV 생성에 실패했습니다.');
@@ -578,6 +580,7 @@ export function createOutputPanel() {
     downloadText(text, filename);
   });
 
-  panel.api = api;
-  return panel;
+  const el = panel as unknown as OutputPanelElement;
+  el.api = api;
+  return el;
 }

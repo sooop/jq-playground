@@ -4,7 +4,9 @@
  */
 
 export class CsvParseError extends Error {
-  constructor(message, line = null, column = null) {
+  line: number | null;
+  column: number | null;
+  constructor(message: string, line: number | null = null, column: number | null = null) {
     super(message);
     this.name = 'CsvParseError';
     this.line = line;
@@ -55,7 +57,7 @@ export function detectDelimiter(text) {
   if (lines.length < 2) return null;
 
   const delimiters = [',', '\t', ';'];
-  const scores = {};
+  const scores: Record<string, { count: number; consistency: number }> = {};
 
   for (const delimiter of delimiters) {
     const counts = lines.map(line => countDelimiters(line, delimiter));

@@ -1,9 +1,22 @@
+import type { InputKeysCache, ContextKeysCache } from '../types';
+
+interface AutocompleteCacheOptions {
+  maxContextEntries?: number;
+  contextTTL?: number;
+}
+
 /**
  * Enhanced cache system for autocomplete
  * Manages both input-based keys and context-based keys with TTL and LRU eviction
  */
 export class AutocompleteCache {
-  constructor(options = {}) {
+  private maxContextEntries: number;
+  private contextTTL: number;
+  private inputKeysCache: InputKeysCache | null;
+  private inputHash: string | null;
+  private contextCache: Map<string, ContextKeysCache>;
+
+  constructor(options: AutocompleteCacheOptions = {}) {
     this.maxContextEntries = options.maxContextEntries || 100;
     this.contextTTL = options.contextTTL || 60000; // 1 minute default
 

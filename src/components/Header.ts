@@ -1,4 +1,4 @@
-import { Storage } from '../utils/storage.js';
+import { Storage } from '../utils/storage';
 
 export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp, onToggleSnippets) {
   const header = document.createElement('div');
@@ -17,7 +17,7 @@ export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp, onTog
     </div>
   `;
 
-  const themeToggleBtn = header.querySelector('#themeToggleBtn');
+  const themeToggleBtn = header.querySelector<HTMLButtonElement>('#themeToggleBtn')!;
 
   // Get system dark mode preference
   const systemDarkMode = window.matchMedia('(prefers-color-scheme: dark)');

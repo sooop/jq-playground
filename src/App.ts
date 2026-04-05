@@ -1,14 +1,14 @@
-/** @typedef {import('./types.js').PanelSizes} PanelSizes */
-import { createHeader } from './components/Header.js';
-import { createInputPanel } from './components/InputPanel.js';
-import { createQueryPanel } from './components/QueryPanel.js';
-import { createOutputPanel } from './components/OutputPanel.js';
-import { createSaveQueryModal, createHelpModal } from './components/Modal.js';
-import { createCheatsheet } from './components/Cheatsheet.js';
-import { createSnippets } from './components/Snippets.js';
-import { jqEngine } from './core/jq-engine.js';
-import { extractKeys } from './core/jq-functions.js';
-import { Storage } from './utils/storage.js';
+import type { ComponentElement, InputPanelApi, QueryPanelApi, OutputPanelElement, SaveQueryModalApi, HelpModalApi, PanelToggleApi, FormatResult, ExecuteResult } from './types';
+import { createHeader } from './components/Header';
+import { createInputPanel } from './components/InputPanel';
+import { createQueryPanel } from './components/QueryPanel';
+import { createOutputPanel } from './components/OutputPanel';
+import { createSaveQueryModal, createHelpModal } from './components/Modal';
+import { createCheatsheet } from './components/Cheatsheet';
+import { createSnippets } from './components/Snippets';
+import { jqEngine } from './core/jq-engine';
+import { extractKeys } from './core/jq-functions';
+import { Storage } from './utils/storage';
 
 const RESIZE_STORAGE_KEY = 'jq-panel-resize';
 
@@ -17,25 +17,17 @@ const RESIZE_STORAGE_KEY = 'jq-panel-resize';
  * and storage. Created and initialized once from `main.js`.
  */
 export class App {
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private inputPanel: ComponentElement<InputPanelApi> | null = null;
+  private queryPanel: ComponentElement<QueryPanelApi> | null = null;
+  private outputPanel: OutputPanelElement | null = null;
+  private modal: ComponentElement<SaveQueryModalApi> | null = null;
+  private helpModal: ComponentElement<HelpModalApi> | null = null;
+  private cheatsheet: ComponentElement<PanelToggleApi> | null = null;
+  private snippets: ComponentElement<PanelToggleApi> | null = null;
+  private executionGeneration = 0;
+
   constructor() {
-    /** @type {number|null} debounce timer id for query execution */
-    this.debounceTimer = null;
-    /** @type {HTMLElement|null} */
-    this.inputPanel = null;
-    /** @type {HTMLElement|null} */
-    this.queryPanel = null;
-    /** @type {HTMLElement|null} */
-    this.outputPanel = null;
-    /** @type {HTMLElement|null} */
-    this.modal = null;
-    /** @type {HTMLElement|null} */
-    this.helpModal = null;
-    /** @type {HTMLElement|null} */
-    this.cheatsheet = null;
-    /** @type {HTMLElement|null} */
-    this.snippets = null;
-    /** @type {number} monotonically increasing counter to discard stale results */
-    this.executionGeneration = 0;
   }
 
   /**
@@ -67,14 +59,14 @@ export class App {
     this.inputPanel = createInputPanel(
       () => this.executeQuery(),
       () => this.executeQuery(true)
-    );
+    ) as unknown as ComponentElement<InputPanelApi>;
     this.queryPanel = createQueryPanel(
       () => this.executeQuery(),
       (query) => this.modal.api.show(query),
       () => this.manualExecute(),
       () => this.getInputKeys()
-    );
-    this.outputPanel = createOutputPanel();
+    ) as unknown as ComponentElement<QueryPanelApi>;
+    this.outputPanel = createOutputPanel() as unknown as OutputPanelElement;
 
     // Set up auto-play toggle callback
     this.outputPanel.onAutoPlayToggle = (enabled) => {
@@ -86,24 +78,24 @@ export class App {
 
     this.modal = createSaveQueryModal((name, query) => {
       this.queryPanel.api.saveQuery(name, query);
-    });
+    }) as unknown as ComponentElement<SaveQueryModalApi>;
 
-    this.helpModal = createHelpModal();
+    this.helpModal = createHelpModal() as unknown as ComponentElement<HelpModalApi>;
 
     this.cheatsheet = createCheatsheet((query) => {
-      const queryTextarea = this.queryPanel.querySelector('#query');
+      const queryTextarea = this.queryPanel.querySelector('#query') as HTMLTextAreaElement;
       const current = queryTextarea.value;
       queryTextarea.value = current.trim() === '' ? query : current + ' | ' + query;
       queryTextarea.focus();
       this.executeQuery();
-    });
+    }) as unknown as ComponentElement<PanelToggleApi>;
 
     this.snippets = createSnippets((query) => {
-      const queryTextarea = this.queryPanel.querySelector('#query');
+      const queryTextarea = this.queryPanel.querySelector('#query') as HTMLTextAreaElement;
       queryTextarea.value = query;
       queryTextarea.focus();
       this.executeQuery();
-    });
+    }) as unknown as ComponentElement<PanelToggleApi>;
 
     // Build layout
     const container = document.createElement('div');
@@ -137,13 +129,13 @@ export class App {
     this.restorePanelSizes(topPanel, main);
 
     container.appendChild(header);
-    container.appendChild(this.snippets);
-    container.appendChild(this.cheatsheet);
     container.appendChild(main);
 
     app.appendChild(container);
     app.appendChild(this.modal);
     app.appendChild(this.helpModal);
+    app.appendChild(this.snippets);
+    app.appendChild(this.cheatsheet);
 
     // Initialize auto-play chip indicator
     this.inputPanel.api.setAutoPlayIndicator(this.outputPanel.api.isAutoPlayEnabled());
@@ -153,7 +145,7 @@ export class App {
       const format = this.outputPanel.api.getFormat();
       // Worker에 캐싱된 결과로 포맷 변환 요청 시도
       try {
-        const result = await jqEngine.formatResult(format);
+        const result = await jqEngine.formatResult(format) as FormatResult;
         if (result.format === 'json') {
           this.outputPanel.api.showFormattedResult(result.resultText, 'json');
         } else if (result.format === 'csv') {
@@ -205,14 +197,14 @@ export class App {
    * @param {boolean} [forceExecute=false]
    */
   executeQuery(forceExecute = false) {
-    clearTimeout(this.debounceTimer);
+    clearTimeout(this.debounceTimer ?? undefined);
 
     const SIZE_3MB = 3 * 1024 * 1024;
     const SIZE_500KB = 500 * 1024;
 
     // Use .length (O(1) property) instead of Blob to avoid blocking the main thread.
     // For ASCII/JSON, length ≈ byte size. Good enough for debounce heuristics.
-    const inputLength = this.inputPanel.querySelector('#input').value.length;
+    const inputLength = (this.inputPanel.querySelector('#input') as HTMLInputElement).value.length;
 
     let debounceDelay;
     if (inputLength > SIZE_3MB) {
@@ -232,7 +224,7 @@ export class App {
       // Read value inside the timer — deferred off the synchronous event path.
       // No .trim() and no Blob: both create O(n) string copies on the main thread.
       // JSON.parse in the worker handles surrounding whitespace fine.
-      const input = this.inputPanel.querySelector('#input').value;
+      const input = (this.inputPanel.querySelector('#input') as HTMLInputElement).value;
       const inputSize = input.length;
 
       // Disable auto-execute if input exceeds 3MB (unless forced)
@@ -267,7 +259,7 @@ export class App {
       const thisGeneration = this.executionGeneration;
 
       try {
-        const { resultText, executionTime } = await jqEngine.execute(input, query);
+        const { resultText, executionTime } = await jqEngine.execute(input, query) as ExecuteResult;
 
         // Stale 체크: 이 사이에 새 실행이 시작되었으면 무시
         if (thisGeneration !== this.executionGeneration) return;
@@ -285,7 +277,7 @@ export class App {
         } else if (format === 'csv') {
           // CSV 포맷: Worker에 formatResult 요청
           try {
-            const csvResult = await jqEngine.formatResult('csv');
+            const csvResult = await jqEngine.formatResult('csv') as FormatResult;
             if (thisGeneration !== this.executionGeneration) return;
             this.outputPanel.api.showFormattedResult(csvResult.html, 'csv', csvResult.csv, executionTime);
           } catch {
@@ -413,7 +405,7 @@ export class App {
    */
   getInputKeys() {
     try {
-      const input = this.inputPanel.querySelector('#input').value;
+      const input = (this.inputPanel.querySelector('#input') as HTMLInputElement).value;
       if (!input) return [];
       const data = JSON.parse(input);
       return extractKeys(data);
@@ -436,8 +428,8 @@ export class App {
       }
     };
 
-    this.inputPanel.querySelector('#input').value = JSON.stringify(sampleData, null, 2);
-    this.queryPanel.querySelector('#query').value = '.users[] | select(.city == "Seoul")';
+    (this.inputPanel.querySelector('#input') as HTMLInputElement).value = JSON.stringify(sampleData, null, 2);
+    (this.queryPanel.querySelector('#query') as HTMLTextAreaElement).value = '.users[] | select(.city == "Seoul")';
     this.executeQuery();
   }
 }

@@ -1,3 +1,6 @@
+/** Worker with a blob URL attached for cleanup. */
+export type BlobWorker = Worker & { _blobUrl: string };
+
 // jq built-in functions and operators
 // inputType: 'any' (default), 'array', 'object', 'string', 'number', 'item' (individual element), 'array|object'
 export const JQ_FUNCTIONS = [
@@ -238,7 +241,7 @@ export function extractKeys(data, maxDepth = 8) {
   }
 
   traverse(data, '', 0, true);
-  return Array.from(keys);
+  return Array.from(keys) as string[];
 }
 
 /**
@@ -338,7 +341,7 @@ export function createKeyExtractionWorker() {
 
   const blob = new Blob([workerCode], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);
-  const worker = new Worker(url);
+  const worker = new Worker(url) as BlobWorker;
 
   // Store URL for cleanup
   worker._blobUrl = url;
@@ -348,9 +351,8 @@ export function createKeyExtractionWorker() {
 
 /**
  * Terminate worker and clean up blob URL
- * @param {Worker} worker - Worker to terminate
  */
-export function terminateKeyExtractionWorker(worker) {
+export function terminateKeyExtractionWorker(worker: BlobWorker | null) {
   if (worker) {
     worker.terminate();
     if (worker._blobUrl) {
@@ -601,16 +603,15 @@ const JQ_WORKER_CODE = `
 export function createJqWorker() {
   const blob = new Blob([JQ_WORKER_CODE], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);
-  const worker = new Worker(url);
+  const worker = new Worker(url) as BlobWorker;
   worker._blobUrl = url;
   return worker;
 }
 
 /**
  * jq 워커를 종료하고 blob URL을 해제한다.
- * @param {Worker} worker
  */
-export function terminateJqWorker(worker) {
+export function terminateJqWorker(worker: BlobWorker | null) {
   if (worker) {
     worker.terminate();
     if (worker._blobUrl) URL.revokeObjectURL(worker._blobUrl);

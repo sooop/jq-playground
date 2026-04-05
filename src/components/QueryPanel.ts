@@ -1,9 +1,9 @@
-import { Storage } from '../utils/storage.js';
-import { filterFunctions, INPUT_TYPE_INFO, extractKeys, createKeyExtractionWorker, terminateKeyExtractionWorker, getFunctionInputType } from '../core/jq-functions.js';
-import { handleTabKey } from '../utils/keyboard.js';
-import { jqEngine } from '../core/jq-engine.js';
-import { AutocompleteCache } from '../utils/autocomplete-cache.js';
-import { PipeAnalyzer } from '../utils/pipe-analyzer.js';
+import { Storage } from '../utils/storage';
+import { filterFunctions, INPUT_TYPE_INFO, extractKeys, createKeyExtractionWorker, terminateKeyExtractionWorker, getFunctionInputType } from '../core/jq-functions';
+import { handleTabKey } from '../utils/keyboard';
+import { jqEngine } from '../core/jq-engine';
+import { AutocompleteCache } from '../utils/autocomplete-cache';
+import { PipeAnalyzer } from '../utils/pipe-analyzer';
 
 const MAX_HISTORY = 100;
 const MAX_AUTOCOMPLETE_ITEMS = 15;
@@ -23,17 +23,17 @@ const FUNCTIONS_WITH_ARGS = new Set([
 ]);
 
 // Helper function to read file
-function readFileContent(file) {
+function readFileContent(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target.result);
+    reader.onload = (e) => resolve(e.target!.result as string);
     reader.onerror = () => reject(new Error('Failed to read file'));
     reader.readAsText(file);
   });
 }
 
 // Fuzzy matching algorithm
-function fuzzyMatch(pattern, text) {
+function fuzzyMatch(pattern: string, text: string): true | { match: boolean; score: number } {
   if (!pattern) return true;
 
   pattern = pattern.toLowerCase();
@@ -62,7 +62,7 @@ function fuzzyMatch(pattern, text) {
   return { match: false, score: 0 };
 }
 
-export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getInputKeys = null) {
+export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (query: string) => void, onExecute: (() => void) | null, getInputKeys: (() => string[]) | null = null) {
   const panel = document.createElement('div');
   panel.className = 'panel';
 
@@ -118,13 +118,13 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   `;
   document.body.appendChild(savedQueriesList);
 
-  const textarea = panel.querySelector('#query');
-  const historySearch = historyList.querySelector('#historySearch');
-  const historyContent = historyList.querySelector('#historyContent');
-  const savedQueriesSearch = savedQueriesList.querySelector('#savedQueriesSearch');
-  const savedQueriesContent = savedQueriesList.querySelector('#savedQueriesContent');
-  const autocompleteList = panel.querySelector('#autocompleteList');
-  const autocompleteDoc = panel.querySelector('#autocompleteDoc');
+  const textarea = panel.querySelector<HTMLTextAreaElement>('#query')!;
+  const historySearch = historyList.querySelector<HTMLInputElement>('#historySearch')!;
+  const historyContent = historyList.querySelector<HTMLElement>('#historyContent')!;
+  const savedQueriesSearch = savedQueriesList.querySelector<HTMLInputElement>('#savedQueriesSearch')!;
+  const savedQueriesContent = savedQueriesList.querySelector<HTMLElement>('#savedQueriesContent')!;
+  const autocompleteList = panel.querySelector<HTMLElement>('#autocompleteList')!;
+  const autocompleteDoc = panel.querySelector<HTMLElement>('#autocompleteDoc')!;
 
   // State
   let queryHistory = [];
@@ -223,7 +223,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
    * @param {Object} options - Extraction options
    * @returns {Promise<{keys: string[], stats: Object}>}
    */
-  function requestKeyExtraction(jsonString, options = {}) {
+  function requestKeyExtraction(jsonString: string, options: { maxDepth?: number; sampleSize?: number } = {}): Promise<{ keys: string[]; stats: object }> {
     return new Promise((resolve, reject) => {
       initWorker();
 
@@ -231,7 +231,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
         // Fallback to sync extraction using imported extractKeys
         try {
           const data = JSON.parse(jsonString);
-          const keys = extractKeys(data, options.maxDepth || 8);
+          const keys = extractKeys(data, options.maxDepth || 8) as string[];
           resolve({ keys, stats: { depth: options.maxDepth || 8, keyCount: keys.length, timeMs: 0 } });
         } catch (error) {
           reject(error);
@@ -266,20 +266,21 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
   // Event delegation for history items (prevents memory leaks)
   historyContent.addEventListener('click', async (e) => {
-    const deleteBtn = e.target.closest('.delete-history-item');
+    const target = e.target as Element;
+    const deleteBtn = target.closest('.delete-history-item') as HTMLElement | null;
     if (deleteBtn) {
       e.stopPropagation();
-      const id = parseInt(deleteBtn.dataset.id);
+      const id = parseInt(deleteBtn.dataset['id']!);
       await Storage.deleteQueryHistory(id);
       queryHistory = await Storage.getQueryHistory(MAX_HISTORY);
       renderHistory(historySearch.value);
       return;
     }
 
-    const item = e.target.closest('.history-item');
+    const item = target.closest('.history-item') as HTMLElement | null;
     if (!item) return;
 
-    const query = item.dataset.query;
+    const query = item.dataset['query'];
     if (query) {
       textarea.value = query;
       historyList.classList.remove('show');
@@ -290,21 +291,22 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
   // Event delegation for saved queries (prevents memory leaks)
   savedQueriesContent.addEventListener('click', (e) => {
-    const deleteBtn = e.target.closest('.delete-saved-query');
+    const target = e.target as Element;
+    const deleteBtn = target.closest('.delete-saved-query') as HTMLElement | null;
     if (deleteBtn) {
       e.stopPropagation();
       if (!confirm('Delete this saved query?')) return;
 
-      const id = parseFloat(deleteBtn.dataset.id);
+      const id = parseFloat(deleteBtn.dataset['id']!);
       savedQueries = savedQueries.filter(q => q.id !== id);
       Storage.saveSavedQueries(savedQueries);
       renderSavedQueries(savedQueriesSearch.value);
       return;
     }
 
-    const item = e.target.closest('.saved-query-item[data-id]');
+    const item = target.closest('.saved-query-item[data-id]') as HTMLElement | null;
     if (item) {
-      const id = parseFloat(item.dataset.id);
+      const id = parseFloat(item.dataset['id']!);
       const queryIndex = savedQueries.findIndex(q => q.id === id);
       if (queryIndex !== -1) {
         const query = savedQueries[queryIndex];
@@ -325,7 +327,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   });
 
   // Position dropdown relative to button
-  function positionDropdown(button, dropdown) {
+  function positionDropdown(button: HTMLElement, dropdown: HTMLElement) {
     const rect = button.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
     const dropdownMaxHeight = Math.min(300, viewportHeight - rect.bottom - 20);
@@ -334,7 +336,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     dropdown.style.right = (window.innerWidth - rect.right) + 'px';
 
     // Update max-height for content
-    const content = dropdown.querySelector('.history-content, .saved-queries-content');
+    const content = dropdown.querySelector<HTMLElement>('.history-content, .saved-queries-content');
     if (content) {
       content.style.maxHeight = dropdownMaxHeight + 'px';
     }
@@ -374,7 +376,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     updateAutocomplete();
   });
 
-  textarea.addEventListener('keydown', (e) => {
+  textarea.addEventListener('keydown', (e: KeyboardEvent) => {
     // Ctrl+Enter: 항상 최우선 처리
     if (e.ctrlKey && e.key === 'Enter') {
       e.preventDefault();
@@ -470,18 +472,18 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }, 150);
   });
 
-  panel.querySelector('#executeQueryBtn').addEventListener('click', () => {
+  panel.querySelector<HTMLButtonElement>('#executeQueryBtn')!.addEventListener('click', () => {
     if (onExecute) {
       onExecute();
     }
   });
 
-  panel.querySelector('#clearQueryBtn').addEventListener('click', () => {
+  panel.querySelector<HTMLButtonElement>('#clearQueryBtn')!.addEventListener('click', () => {
     textarea.value = '';
     onQueryChange();
   });
 
-  panel.querySelector('#saveQueryBtn').addEventListener('click', () => {
+  panel.querySelector<HTMLButtonElement>('#saveQueryBtn')!.addEventListener('click', () => {
     const query = textarea.value.trim();
     if (!query) {
       alert('Please enter a query to save');
@@ -490,7 +492,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     onShowSaveModal(query);
   });
 
-  const historyBtn = panel.querySelector('#historyBtn');
+  const historyBtn = panel.querySelector<HTMLButtonElement>('#historyBtn')!;
   historyBtn.addEventListener('click', () => {
     savedQueriesList.classList.remove('show');
     historyList.classList.toggle('show');
@@ -502,7 +504,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
   // History search
   historySearch.addEventListener('input', (e) => {
-    renderHistory(e.target.value);
+    renderHistory((e.target as HTMLInputElement).value);
   });
 
   // History search - prevent closing dropdown on click
@@ -511,7 +513,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   });
 
   // Clear all history
-  historyList.querySelector('#clearAllHistoryBtn').addEventListener('click', async () => {
+  historyList.querySelector<HTMLButtonElement>('#clearAllHistoryBtn')!.addEventListener('click', async () => {
     if (confirm('Clear all query history?')) {
       await Storage.clearAllQueryHistory();
       queryHistory = [];
@@ -520,7 +522,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   });
 
   // Export history
-  historyList.querySelector('#exportHistoryBtn').addEventListener('click', () => {
+  historyList.querySelector<HTMLButtonElement>('#exportHistoryBtn')!.addEventListener('click', () => {
     if (queryHistory.length === 0) {
       alert('No history to export');
       return;
@@ -543,14 +545,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   });
 
   // Import history
-  const importHistoryFile = panel.querySelector('#importHistoryFile');
+  const importHistoryFile = panel.querySelector<HTMLInputElement>('#importHistoryFile')!;
 
-  historyList.querySelector('#importHistoryBtn').addEventListener('click', () => {
+  historyList.querySelector<HTMLButtonElement>('#importHistoryBtn')!.addEventListener('click', () => {
     importHistoryFile.click();
   });
 
   importHistoryFile.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+    const file = (e.target as HTMLInputElement).files![0];
     if (!file) return;
 
     try {
@@ -597,13 +599,13 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
       alert(`Successfully imported ${validHistory.length} history items`);
     } catch (error) {
-      alert('Failed to import history: ' + error.message);
+      alert('Failed to import history: ' + (error as Error).message);
     }
 
-    e.target.value = '';
+    (e.target as HTMLInputElement).value = '';
   });
 
-  const savedQueriesBtn = panel.querySelector('#savedQueriesBtn');
+  const savedQueriesBtn = panel.querySelector<HTMLButtonElement>('#savedQueriesBtn')!;
   savedQueriesBtn.addEventListener('click', () => {
     historyList.classList.remove('show');
     savedQueriesList.classList.toggle('show');
@@ -615,7 +617,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
   // Saved queries search
   savedQueriesSearch.addEventListener('input', (e) => {
-    renderSavedQueries(e.target.value);
+    renderSavedQueries((e.target as HTMLInputElement).value);
   });
 
   // Saved queries search - prevent closing dropdown on click
@@ -623,7 +625,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     e.stopPropagation();
   });
 
-  savedQueriesList.querySelector('#exportQueriesBtn').addEventListener('click', () => {
+  savedQueriesList.querySelector<HTMLButtonElement>('#exportQueriesBtn')!.addEventListener('click', () => {
     if (savedQueries.length === 0) {
       alert('No saved queries to export');
       return;
@@ -645,14 +647,14 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     URL.revokeObjectURL(url);
   });
 
-  const importFileInput = panel.querySelector('#importQueriesFile');
+  const importFileInput = panel.querySelector<HTMLInputElement>('#importQueriesFile')!;
 
-  savedQueriesList.querySelector('#importQueriesBtn').addEventListener('click', () => {
+  savedQueriesList.querySelector<HTMLButtonElement>('#importQueriesBtn')!.addEventListener('click', () => {
     importFileInput.click();
   });
 
   importFileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+    const file = (e.target as HTMLInputElement).files![0];
     if (!file) return;
 
     try {
@@ -703,25 +705,26 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
 
       alert(`Successfully imported ${validQueries.length} queries`);
     } catch (error) {
-      alert('Failed to import queries: ' + error.message);
+      alert('Failed to import queries: ' + (error as Error).message);
     }
 
-    e.target.value = '';
+    (e.target as HTMLInputElement).value = '';
   });
 
   // Close dropdowns when clicking outside
   document.addEventListener('click', (e) => {
-    const dropdown = panel.querySelector('.history-dropdown');
-    if (!dropdown.contains(e.target) &&
-        !historyList.contains(e.target) &&
-        !savedQueriesList.contains(e.target)) {
+    const dropdown = panel.querySelector<HTMLElement>('.history-dropdown')!;
+    const target = e.target as Node;
+    if (!dropdown.contains(target) &&
+        !historyList.contains(target) &&
+        !savedQueriesList.contains(target)) {
       historyList.classList.remove('show');
       savedQueriesList.classList.remove('show');
     }
   });
 
   // ESC key to close dropdowns
-  document.addEventListener('keydown', (e) => {
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       if (historyList.classList.contains('show')) {
         historyList.classList.remove('show');
@@ -799,7 +802,11 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     let filteredHistory = queryHistory;
     if (searchTerm) {
       filteredHistory = queryHistory
-        .map(item => ({ ...item, ...fuzzyMatch(searchTerm, item.query) }))
+        .map(item => {
+          const result = fuzzyMatch(searchTerm, item.query);
+          const matchObj = typeof result === 'object' ? result : { match: true, score: 0 };
+          return { ...item, ...matchObj };
+        })
         .filter(item => item.match)
         .sort((a, b) => b.score - a.score);
     }
@@ -836,8 +843,10 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     if (searchTerm) {
       filteredQueries = savedQueries
         .map(sq => {
-          const nameMatch = fuzzyMatch(searchTerm, sq.name);
-          const queryMatch = fuzzyMatch(searchTerm, sq.query);
+          const nameResult = fuzzyMatch(searchTerm, sq.name);
+          const queryResult = fuzzyMatch(searchTerm, sq.query);
+          const nameMatch = typeof nameResult === 'object' ? nameResult : { match: true, score: 0 };
+          const queryMatch = typeof queryResult === 'object' ? queryResult : { match: true, score: 0 };
           const bestMatch = nameMatch.score > queryMatch.score ? nameMatch : queryMatch;
           return { ...sq, ...bestMatch };
         })
@@ -1105,7 +1114,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       const variables = PipeAnalyzer.extractVariables(
         textarea.value,
         textarea.selectionStart
-      );
+      ) as string[];
       const searchTerm = word.substring(1).toLowerCase(); // Remove $ for matching
 
       const matches = variables
@@ -1160,7 +1169,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       }
 
       // Get input data
-      const inputData = document.getElementById('input').value;
+      const inputData = (document.getElementById('input') as HTMLTextAreaElement).value;
       if (!inputData) {
         // 입력 데이터 없으면 필드 자동완성 불가: 함수 자동완성으로 폴백 (isFieldAccess=false인 경우만)
         if (isFieldAccess) {
@@ -1251,13 +1260,13 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
               inputData,
               contextQuery,
               2000 // 2 second timeout
-            );
+            ) as { keys?: string[]; type?: string };
 
             if (updateId !== autocompleteUpdateId) return;
             contextKeys = context.keys || [];
             autocompleteCache.setContextKeys(cacheKey, contextKeys, context.type);
           } catch (error) {
-            console.debug('Context execution failed or timed out:', error.message);
+            console.debug('Context execution failed or timed out:', (error as Error).message);
             // Fallback to input keys on timeout/error
             contextKeys = [];
           }
@@ -1408,8 +1417,8 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
     }).join('');
 
     // Add click and hover listeners
-    autocompleteList.querySelectorAll('.autocomplete-item').forEach(item => {
-      const index = parseInt(item.dataset.index);
+    autocompleteList.querySelectorAll<HTMLElement>('.autocomplete-item').forEach(item => {
+      const index = parseInt(item.dataset['index']!);
 
       // 클릭 핸들러
       item.addEventListener('click', () => {
@@ -1428,7 +1437,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
       });
 
       // mouseleave: 메뉴 밖으로 나갈 때만 선택 초기화
-      item.addEventListener('mouseleave', (e) => {
+      item.addEventListener('mouseleave', (e: MouseEvent) => {
         if (!hoverLocked) {
           const rect = autocompleteList.getBoundingClientRect();
           if (e.clientX < rect.left || e.clientX > rect.right ||
@@ -1567,7 +1576,7 @@ export function createQueryPanel(onQueryChange, onShowSaveModal, onExecute, getI
   renderHistory();
   renderSavedQueries();
 
-  panel.api = api;
+  (panel as any).api = api;
   return panel;
 }
 

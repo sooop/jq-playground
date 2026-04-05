@@ -3,19 +3,16 @@
  * Provides a Promise-based interface for IndexedDB operations
  */
 export class IndexedDBStorage {
-  constructor() {
-    this.db = null;
-    this.dbName = null;
-    this.version = null;
-  }
+  private db: IDBDatabase | null = null;
+  private dbName: string | null = null;
+  private version: number | null = null;
+
+  constructor() {}
 
   /**
    * Initialize IndexedDB with specified stores
-   * @param {string} dbName - Database name
-   * @param {number} version - Schema version
-   * @param {Array<{name: string, options: object}>} stores - Object stores to create
    */
-  async init(dbName, version, stores) {
+  async init(dbName: string, version: number, stores: Array<{ name: string; options: IDBObjectStoreParameters }>) {
     this.dbName = dbName;
     this.version = version;
 
@@ -33,11 +30,12 @@ export class IndexedDBStorage {
       };
 
       request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        const tx = event.target.transaction;
+        const req = event.target as IDBOpenDBRequest;
+        const db = req.result;
+        const tx = req.transaction;
 
         stores.forEach(({ name, options }) => {
-          let store;
+          let store: IDBObjectStore;
           if (!db.objectStoreNames.contains(name)) {
             store = db.createObjectStore(name, options);
 
@@ -50,7 +48,7 @@ export class IndexedDBStorage {
               }
             }
           } else {
-            store = tx.objectStore(name);
+            store = tx!.objectStore(name);
             // v2 upgrade: add contentHash index to input-history
             if (name === 'input-history' && !store.indexNames.contains('contentHash')) {
               store.createIndex('contentHash', 'contentHash', { unique: false });
@@ -63,12 +61,10 @@ export class IndexedDBStorage {
 
   /**
    * Add a new record to a store
-   * @param {string} storeName - Object store name
-   * @param {object} data - Data to add (ID will be auto-generated if keyPath is autoIncrement)
    */
-  async add(storeName, data) {
+  async add(storeName: string, data: object) {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readwrite');
+      const transaction = this.db!.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
       const request = store.add(data);
 
@@ -79,12 +75,10 @@ export class IndexedDBStorage {
 
   /**
    * Get a record by ID
-   * @param {string} storeName - Object store name
-   * @param {number} id - Record ID
    */
-  async get(storeName, id) {
+  async get(storeName: string, id: number) {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
+      const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
       const request = store.get(id);
 
@@ -95,27 +89,21 @@ export class IndexedDBStorage {
 
   /**
    * Get all records from a store with optional ordering and pagination
-   * @param {string} storeName - Object store name
-   * @param {string} orderBy - Index name to order by (optional)
-   * @param {number} limit - Maximum number of records (optional)
-   * @param {number} offset - Number of records to skip (optional)
    */
-  async getAll(storeName, orderBy = null, limit = null, offset = 0) {
+  async getAll(storeName: string, orderBy: string | null = null, limit: number | null = null, offset = 0) {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
+      const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
 
-      let source = store;
-      if (orderBy && store.indexNames.contains(orderBy)) {
-        source = store.index(orderBy);
-      }
+      const source: IDBObjectStore | IDBIndex =
+        orderBy && store.indexNames.contains(orderBy) ? store.index(orderBy) : store;
 
       const request = source.openCursor(null, 'prev'); // Most recent first
-      const results = [];
+      const results: unknown[] = [];
       let skipped = 0;
 
       request.onsuccess = (event) => {
-        const cursor = event.target.result;
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
 
         if (cursor) {
           if (skipped < offset) {
@@ -142,12 +130,10 @@ export class IndexedDBStorage {
 
   /**
    * Delete a record by ID
-   * @param {string} storeName - Object store name
-   * @param {number} id - Record ID
    */
-  async delete(storeName, id) {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readwrite');
+  async delete(storeName: string, id: number) {
+    return new Promise<void>((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
       const request = store.delete(id);
 
@@ -158,11 +144,10 @@ export class IndexedDBStorage {
 
   /**
    * Clear all records from a store
-   * @param {string} storeName - Object store name
    */
-  async clear(storeName) {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readwrite');
+  async clear(storeName: string) {
+    return new Promise<void>((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
       const request = store.clear();
 
@@ -173,23 +158,19 @@ export class IndexedDBStorage {
 
   /**
    * Get the oldest record from a store
-   * @param {string} storeName - Object store name
-   * @param {string} orderBy - Index name to order by
    */
-  async getOldest(storeName, orderBy = 'timestamp') {
+  async getOldest(storeName: string, orderBy = 'timestamp') {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
+      const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
 
-      let source = store;
-      if (orderBy && store.indexNames.contains(orderBy)) {
-        source = store.index(orderBy);
-      }
+      const source: IDBObjectStore | IDBIndex =
+        orderBy && store.indexNames.contains(orderBy) ? store.index(orderBy) : store;
 
       const request = source.openCursor(null, 'next'); // Oldest first
 
       request.onsuccess = (event) => {
-        const cursor = event.target.result;
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
         resolve(cursor ? cursor.value : null);
       };
 
@@ -199,11 +180,10 @@ export class IndexedDBStorage {
 
   /**
    * Count total records in a store
-   * @param {string} storeName - Object store name
    */
-  async count(storeName) {
-    return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
+  async count(storeName: string): Promise<number> {
+    return new Promise<number>((resolve, reject) => {
+      const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
       const request = store.count();
 
@@ -214,19 +194,14 @@ export class IndexedDBStorage {
 
   /**
    * Enforce maximum record limit using LRU strategy
-   * @param {string} storeName - Object store name
-   * @param {number} maxLimit - Maximum number of records allowed
-   * @param {string} orderBy - Index to determine oldest records
    */
-  async enforceLimit(storeName, maxLimit, orderBy = 'timestamp') {
+  async enforceLimit(storeName: string, maxLimit: number, orderBy = 'timestamp') {
     const count = await this.count(storeName);
 
     if (count > maxLimit) {
       const toDelete = count - maxLimit;
-      const oldest = await this.getAll(storeName, orderBy, toDelete, 0);
 
-      // Get oldest records by reversing the cursor direction
-      const transaction = this.db.transaction([storeName], 'readwrite');
+      const transaction = this.db!.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
       const index = store.index(orderBy);
       const request = index.openCursor(null, 'next'); // Oldest first
@@ -235,7 +210,7 @@ export class IndexedDBStorage {
 
       return new Promise((resolve, reject) => {
         request.onsuccess = (event) => {
-          const cursor = event.target.result;
+          const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
 
           if (cursor && deleted < toDelete) {
             cursor.delete();
@@ -262,18 +237,15 @@ export class IndexedDBStorage {
 
   /**
    * Find a record by field value (full table scan — legacy)
-   * @param {string} storeName - Object store name
-   * @param {string} field - Field name to search
-   * @param {*} value - Value to match
    */
-  async findByField(storeName, field, value) {
+  async findByField(storeName: string, field: string, value: unknown) {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
+      const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
       const request = store.openCursor();
 
       request.onsuccess = (event) => {
-        const cursor = event.target.result;
+        const cursor = (event.target as IDBRequest<IDBCursorWithValue | null>).result;
         if (cursor) {
           if (cursor.value[field] === value) {
             resolve(cursor.value);
@@ -291,21 +263,17 @@ export class IndexedDBStorage {
 
   /**
    * Find a record by indexed field (O(1) lookup)
-   * @param {string} storeName - Object store name
-   * @param {string} indexName - Index name
-   * @param {*} value - Value to match
    */
-  async findByIndex(storeName, indexName, value) {
+  async findByIndex(storeName: string, indexName: string, value: unknown) {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readonly');
+      const transaction = this.db!.transaction([storeName], 'readonly');
       const store = transaction.objectStore(storeName);
       if (!store.indexNames.contains(indexName)) {
-        // 인덱스가 없으면 null 반환 (폴백 처리)
         resolve(null);
         return;
       }
       const index = store.index(indexName);
-      const request = index.get(value);
+      const request = index.get(value as IDBValidKey);
 
       request.onsuccess = () => resolve(request.result || null);
       request.onerror = () => reject(request.error);
@@ -314,13 +282,10 @@ export class IndexedDBStorage {
 
   /**
    * Update a record by ID
-   * @param {string} storeName - Object store name
-   * @param {number} id - Record ID
-   * @param {object} updates - Fields to update
    */
-  async update(storeName, id, updates) {
+  async update(storeName: string, id: number, updates: object) {
     return new Promise((resolve, reject) => {
-      const transaction = this.db.transaction([storeName], 'readwrite');
+      const transaction = this.db!.transaction([storeName], 'readwrite');
       const store = transaction.objectStore(storeName);
       const getRequest = store.get(id);
 
@@ -331,7 +296,6 @@ export class IndexedDBStorage {
           return;
         }
 
-        // Merge updates
         const updatedRecord = { ...record, ...updates };
         const putRequest = store.put(updatedRecord);
 

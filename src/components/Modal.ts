@@ -1,4 +1,6 @@
-export function createSaveQueryModal(onSave) {
+import type { ComponentElement, SaveQueryModalApi, HelpModalApi } from '../types';
+
+export function createSaveQueryModal(onSave: (name: string, query: string) => void) {
   const modal = document.createElement('div');
   modal.className = 'modal-overlay';
   modal.id = 'saveQueryModal';
@@ -20,13 +22,13 @@ export function createSaveQueryModal(onSave) {
     </div>
   `;
 
-  const nameInput = modal.querySelector('#queryName');
-  const queryTextarea = modal.querySelector('#queryToSave');
-  const cancelBtn = modal.querySelector('#cancelBtn');
-  const saveBtn = modal.querySelector('#saveBtn');
+  const nameInput = modal.querySelector<HTMLInputElement>('#queryName')!;
+  const queryTextarea = modal.querySelector<HTMLTextAreaElement>('#queryToSave')!;
+  const cancelBtn = modal.querySelector<HTMLButtonElement>('#cancelBtn')!;
+  const saveBtn = modal.querySelector<HTMLButtonElement>('#saveBtn')!;
 
   // Public methods
-  const api = {
+  const api: SaveQueryModalApi = {
     show: (query) => {
       queryTextarea.value = query;
       nameInput.value = '';
@@ -55,7 +57,7 @@ export function createSaveQueryModal(onSave) {
     api.hide();
   });
 
-  nameInput.addEventListener('keypress', (e) => {
+  nameInput.addEventListener('keypress', (e: KeyboardEvent) => {
     if (e.key === 'Enter') {
       saveBtn.click();
     }
@@ -67,8 +69,9 @@ export function createSaveQueryModal(onSave) {
     }
   });
 
-  modal.api = api;
-  return modal;
+  const el = modal as unknown as ComponentElement<SaveQueryModalApi>;
+  el.api = api;
+  return el;
 }
 
 export function createHelpModal() {
@@ -125,10 +128,10 @@ export function createHelpModal() {
     </div>
   `;
 
-  const closeBtn = modal.querySelector('#closeHelpBtn');
+  const closeBtn = modal.querySelector<HTMLButtonElement>('#closeHelpBtn')!;
 
   // Public methods
-  const api = {
+  const api: HelpModalApi = {
     show: () => {
       modal.classList.add('show');
     },
@@ -148,12 +151,13 @@ export function createHelpModal() {
   });
 
   // ESC key to close
-  document.addEventListener('keydown', (e) => {
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
     if (e.key === 'Escape' && modal.classList.contains('show')) {
       api.hide();
     }
   });
 
-  modal.api = api;
-  return modal;
+  const el = modal as unknown as ComponentElement<HelpModalApi>;
+  el.api = api;
+  return el;
 }

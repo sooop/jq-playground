@@ -1,10 +1,12 @@
-import { readFile } from '../core/file-handler.js';
-import { handleTabKey } from '../utils/keyboard.js';
-import { Storage } from '../utils/storage.js';
-import { csvToJson, detectDelimiter } from '../core/csv-parser.js';
-import { extractJson, needsJsonExtraction, tryFormatJson } from '../utils/json-extractor.js';
+import { readFile } from '../core/file-handler';
+import { handleTabKey } from '../utils/keyboard';
+import { Storage } from '../utils/storage';
+import { csvToJson, detectDelimiter } from '../core/csv-parser';
+import { extractJson, needsJsonExtraction, tryFormatJson } from '../utils/json-extractor';
+import { scanJson, filterEntries, type JsonEntry } from '../utils/json-position-scanner';
+import type { ComponentElement, InputPanelApi } from '../types';
 
-export function createInputPanel(onInputChange, onExecuteQuery) {
+export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() => void) | null) {
   const panel = document.createElement('div');
   panel.className = 'panel';
   panel.innerHTML = `
@@ -18,6 +20,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
         <button id="formatJsonBtn" title="Format JSON (Ctrl+Shift+F)">Format</button>
         <button id="clearInputBtn">Clear</button>
         <button id="loadFileBtn">Load File</button>
+        <button id="findJsonBtn" title="Find in JSON (Ctrl+F)">Find</button>
         <button id="inputHistoryBtn">History</button>
         <input type="file" id="fileInput" accept=".json,.txt,.csv,.tsv" style="display: none;">
       </div>
@@ -28,21 +31,25 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     </div>
   `;
 
-  const textarea = panel.querySelector('#input');
-  const fileInput = panel.querySelector('#fileInput');
-  const panelContent = panel.querySelector('.panel-content');
-  const dragOverlay = panel.querySelector('#dragOverlay');
-  const formatLabel = panel.querySelector('#inputFormat');
-  const parseCsvBtn = panel.querySelector('#parseCsvBtn');
+  const textarea = panel.querySelector<HTMLTextAreaElement>('#input')!;
+  const fileInput = panel.querySelector<HTMLInputElement>('#fileInput')!;
+  const panelContent = panel.querySelector<HTMLElement>('.panel-content')!;
+  const dragOverlay = panel.querySelector<HTMLElement>('#dragOverlay')!;
+  const formatLabel = panel.querySelector<HTMLElement>('#inputFormat')!;
+  const parseCsvBtn = panel.querySelector<HTMLButtonElement>('#parseCsvBtn')!;
 
   // Track current file name
-  let currentFileName = null;
+  let currentFileName: string | null = null;
 
   // Debounce timer for auto-save
-  let saveDebounceTimer = null;
+  let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Auto-format state (disabled automatically for large pastes)
   let autoFormatEnabled = true;
+
+  // Find state
+  let findEntriesCache: JsonEntry[] | null = null;
+  let findDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Create history dropdown
   const historyDropdown = document.createElement('div');
@@ -60,12 +67,40 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   `;
   document.body.appendChild(historyDropdown);
 
-  const historyBtn = panel.querySelector('#inputHistoryBtn');
-  const sortToggleBtn = historyDropdown.querySelector('#sortToggleBtn');
-  const sortLabel = sortToggleBtn.querySelector('.sort-label');
-  const searchInput = historyDropdown.querySelector('#inputHistorySearch');
-  const historyList = historyDropdown.querySelector('#inputHistoryList');
-  const clearAllBtn = historyDropdown.querySelector('#clearAllInputHistory');
+  const historyBtn = panel.querySelector<HTMLButtonElement>('#inputHistoryBtn')!;
+  const sortToggleBtn = historyDropdown.querySelector<HTMLButtonElement>('#sortToggleBtn')!;
+  const sortLabel = sortToggleBtn.querySelector<HTMLElement>('.sort-label')!;
+  const searchInput = historyDropdown.querySelector<HTMLInputElement>('#inputHistorySearch')!;
+  const historyList = historyDropdown.querySelector<HTMLElement>('#inputHistoryList')!;
+  const clearAllBtn = historyDropdown.querySelector<HTMLButtonElement>('#clearAllInputHistory')!;
+
+  // Create find dropdown
+  const findDropdown = document.createElement('div');
+  findDropdown.className = 'dropdown input-find-dropdown';
+  findDropdown.style.display = 'none';
+  findDropdown.innerHTML = `
+    <div class="dropdown-header">
+      <input type="text" id="inputFindSearch" placeholder="Search keys & values..." autocomplete="off">
+      <label class="find-filter"><input type="checkbox" id="findKeysToggle" checked> Keys</label>
+      <label class="find-filter"><input type="checkbox" id="findValuesToggle" checked> Values</label>
+      <span class="search-info" id="findMatchInfo"></span>
+      <button id="findCloseBtn" title="Close (Escape)">×</button>
+    </div>
+    <div class="dropdown-list" id="findResultList"></div>
+  `;
+  document.body.appendChild(findDropdown);
+
+  const findOverlay = document.createElement('div');
+  findOverlay.className = 'input-find-overlay';
+  document.body.appendChild(findOverlay);
+
+  const findBtn = panel.querySelector<HTMLButtonElement>('#findJsonBtn')!;
+  const findSearchInput = findDropdown.querySelector<HTMLInputElement>('#inputFindSearch')!;
+  const findResultList = findDropdown.querySelector<HTMLElement>('#findResultList')!;
+  const findMatchInfo = findDropdown.querySelector<HTMLElement>('#findMatchInfo')!;
+  const findKeysToggle = findDropdown.querySelector<HTMLInputElement>('#findKeysToggle')!;
+  const findValuesToggle = findDropdown.querySelector<HTMLInputElement>('#findValuesToggle')!;
+  const findCloseBtn = findDropdown.querySelector<HTMLButtonElement>('#findCloseBtn')!;
 
   // Sort state (default: timestamp)
   let currentSortBy = localStorage.getItem('jq-input-sort') || 'timestamp';
@@ -73,7 +108,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
 
   // Auto-save input (20 second debounce)
   const autoSaveInput = () => {
-    clearTimeout(saveDebounceTimer);
+    if (saveDebounceTimer !== null) clearTimeout(saveDebounceTimer);
     saveDebounceTimer = setTimeout(async () => {
       const content = textarea.value.trim();
       if (content) {
@@ -83,7 +118,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   };
 
   // Format detailed timestamp (YYYY-MM-DD HH:MM:SS)
-  const formatDetailedTimestamp = (iso) => {
+  const formatDetailedTimestamp = (iso: string) => {
     const date = new Date(iso);
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -100,7 +135,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     if (searchTerm) {
       items = await Storage.searchInputHistory(searchTerm);
       // Sort search results by current sort preference
-      items.sort((a, b) => new Date(b[currentSortBy]) - new Date(a[currentSortBy]));
+      items.sort((a, b) => new Date(b[currentSortBy as keyof typeof b] as string).getTime() - new Date(a[currentSortBy as keyof typeof a] as string).getTime());
     } else {
       items = await Storage.getInputHistory(50, currentSortBy);
     }
@@ -147,10 +182,10 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }).join('');
 
     // Add click handlers
-    historyList.querySelectorAll('.input-history-item').forEach(item => {
-      const id = parseInt(item.dataset.id);
+    historyList.querySelectorAll<HTMLElement>('.input-history-item').forEach(item => {
+      const id = parseInt(item.dataset['id']!);
       item.addEventListener('click', async (e) => {
-        if (e.target.classList.contains('delete-input-history')) {
+        if ((e.target as HTMLElement).classList.contains('delete-input-history')) {
           return; // Handled by delete button
         }
 
@@ -185,10 +220,10 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     });
 
     // Delete buttons
-    historyList.querySelectorAll('.delete-input-history').forEach(btn => {
+    historyList.querySelectorAll<HTMLElement>('.delete-input-history').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const id = parseInt(e.target.dataset.id);
+        const id = parseInt((e.target as HTMLElement).dataset['id']!);
         await Storage.deleteInputHistory(id);
         loadHistory(searchInput.value);
       });
@@ -196,24 +231,165 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   };
 
   // Format file size
-  const formatFileSize = (bytes) => {
+  const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   };
 
   // Update format label
-  const updateFormatLabel = (fileName) => {
+  const updateFormatLabel = (fileName: string | null) => {
     if (!fileName) {
       formatLabel.textContent = '';
       return;
     }
-    const ext = fileName.split('.').pop().toUpperCase();
+    const ext = fileName.split('.').pop()!.toUpperCase();
     if (['CSV', 'TSV'].includes(ext)) {
       formatLabel.textContent = `(${ext} → JSON)`;
     } else {
       formatLabel.textContent = '';
     }
+  };
+
+  // Find: escape HTML entities
+  const escapeHtml = (text: string): string =>
+    text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  // Find: highlight matching substring in text
+  const highlightMatch = (text: string, query: string): string => {
+    if (!query) return escapeHtml(text);
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escapedQuery, 'gi');
+    const parts: string[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text)) !== null) {
+      parts.push(escapeHtml(text.slice(lastIndex, match.index)));
+      parts.push(`<mark>${escapeHtml(match[0])}</mark>`);
+      lastIndex = match.index + match[0].length;
+      if (match[0].length === 0) { regex.lastIndex++; }
+    }
+    parts.push(escapeHtml(text.slice(lastIndex)));
+    return parts.join('');
+  };
+
+  // Find: navigate textarea to position
+  const navigateToPosition = (start: number, end: number): void => {
+    const computedStyle = getComputedStyle(textarea);
+    const lineHeight = parseFloat(computedStyle.lineHeight) || 18;
+    const lineNum = textarea.value.substring(0, start).split('\n').length - 1;
+    const scrollTarget = lineNum * lineHeight - textarea.clientHeight / 2;
+    textarea.focus();
+    textarea.setSelectionRange(start, end);
+    textarea.scrollTop = Math.max(0, scrollTarget);
+  };
+
+  // Find: render result items in the dropdown
+  const renderFindResults = (results: ReturnType<typeof filterEntries>, query: string): void => {
+    const MAX_DISPLAY = 200;
+    const val = textarea.value.trim();
+
+    if (!val) {
+      findResultList.innerHTML = '<div class="find-empty-state">JSON을 입력하면 검색할 수 있습니다</div>';
+      findMatchInfo.textContent = '';
+      return;
+    }
+
+    if (!query.trim()) {
+      const total = findEntriesCache?.length ?? 0;
+      findResultList.innerHTML = `<div class="find-empty-state">${total > 0 ? `${total}개 항목 발견. 검색어를 입력하세요.` : 'JSON 항목이 없습니다'}</div>`;
+      findMatchInfo.textContent = '';
+      return;
+    }
+
+    if (results.length === 0) {
+      findResultList.innerHTML = '<div class="find-empty-state">일치하는 항목 없음</div>';
+      findMatchInfo.textContent = '0개';
+      return;
+    }
+
+    const overflow = results.length > MAX_DISPLAY;
+    findMatchInfo.textContent = overflow ? `${MAX_DISPLAY}+개` : `${results.length}개`;
+
+    findResultList.innerHTML = results.slice(0, MAX_DISPLAY).map((e, i) => {
+      const pathHtml = query ? highlightMatch(e.path, query) : escapeHtml(e.path);
+      const valueHtml = query ? highlightMatch(e.value, query) : escapeHtml(e.value);
+      return `<div class="find-result-item" tabindex="-1"
+        data-ks="${e.keyStart}" data-ke="${e.keyEnd}"
+        data-vs="${e.valueStart}" data-ve="${e.valueEnd}"
+        data-has-key="${e.key !== null}"
+        data-index="${i}">
+        <span class="find-path">${pathHtml}</span>
+        <span class="find-value">${valueHtml}</span>
+      </div>`;
+    }).join('') + (overflow ? '<div class="find-overflow">결과가 200개로 제한되었습니다. 검색어를 구체화하세요.</div>' : '');
+
+    // Add click and keyboard handlers
+    findResultList.querySelectorAll<HTMLElement>('.find-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const ks = parseInt(item.dataset['ks']!);
+        const ke = parseInt(item.dataset['ke']!);
+        const vs = parseInt(item.dataset['vs']!);
+        const ve = parseInt(item.dataset['ve']!);
+        const hasKey = item.dataset['hasKey'] === 'true';
+        const selectStart = hasKey && ks < ke ? ks : vs;
+        const selectEnd = hasKey && ks < ke ? ke : ve;
+        navigateToPosition(selectStart, selectEnd);
+        findResultList.querySelectorAll('.find-result-item.active').forEach(el => el.classList.remove('active'));
+        item.classList.add('active');
+      });
+
+      item.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          item.click();
+        } else if (e.key === 'Escape') {
+          closeFindDropdown();
+          textarea.focus();
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          const next = item.nextElementSibling as HTMLElement | null;
+          if (next?.classList.contains('find-result-item')) next.focus();
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prev = item.previousElementSibling as HTMLElement | null;
+          if (prev?.classList.contains('find-result-item')) prev.focus();
+          else findSearchInput.focus();
+        }
+      });
+    });
+  };
+
+  // Find: run search and render
+  const performFindSearch = (): void => {
+    if (textarea.value.length > 2 * 1024 * 1024) {
+      findResultList.innerHTML = '<div class="find-empty-state">JSON이 너무 큽니다 (2MB 초과)</div>';
+      findMatchInfo.textContent = '';
+      return;
+    }
+    if (!findEntriesCache) {
+      findEntriesCache = scanJson(textarea.value);
+    }
+    const query = findSearchInput.value;
+    const filtered = filterEntries(findEntriesCache, query, findKeysToggle.checked, findValuesToggle.checked);
+    renderFindResults(filtered, query);
+  };
+
+  // Find: open/close
+  const openFindDropdown = (): void => {
+    if (findDropdown.style.display !== 'none') {
+      findSearchInput.focus();
+      return;
+    }
+    findDropdown.style.display = 'flex';
+    findOverlay.style.display = 'block';
+    findEntriesCache = null;
+    performFindSearch();
+    findSearchInput.focus();
+  };
+
+  const closeFindDropdown = (): void => {
+    findDropdown.style.display = 'none';
+    findOverlay.style.display = 'none';
   };
 
   // Update auto-format indicator in the format label
@@ -230,7 +406,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   };
 
   // Detect if text looks like CSV
-  const isCsvLike = (text) => {
+  const isCsvLike = (text: string) => {
     // Check if valid JSON first
     try {
       JSON.parse(text);
@@ -247,7 +423,7 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   };
 
   // Convert CSV/TSV to JSON
-  const convertCsvToJson = async (text, fileName) => {
+  const convertCsvToJson = async (text: string, _fileName: string | null) => {
     try {
       const jsonData = csvToJson(text, {
         hasHeader: true,
@@ -255,18 +431,18 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
       });
       return JSON.stringify(jsonData, null, 2);
     } catch (error) {
-      throw new Error('CSV parsing failed: ' + error.message);
+      throw new Error('CSV parsing failed: ' + (error as Error).message);
     }
   };
 
   // Persistent format worker (재사용, idle 30초 후 자동 종료)
-  let _formatWorker = null;
-  let _formatWorkerUrl = null;
-  let _formatWorkerIdleTimer = null;
+  let _formatWorker: Worker | null = null;
+  let _formatWorkerUrl: string | null = null;
+  let _formatWorkerIdleTimer: ReturnType<typeof setTimeout> | null = null;
   const FORMAT_WORKER_IDLE_MS = 30000;
 
   const _getFormatWorker = () => {
-    clearTimeout(_formatWorkerIdleTimer);
+    if (_formatWorkerIdleTimer !== null) clearTimeout(_formatWorkerIdleTimer);
     if (!_formatWorker) {
       const code = `self.onmessage=function(e){try{self.postMessage({ok:JSON.stringify(JSON.parse(e.data),null,4)})}catch(err){self.postMessage({err:err.message})}};`;
       _formatWorkerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
@@ -285,11 +461,11 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   };
 
   // Run JSON.parse + JSON.stringify in a Worker so the main thread stays responsive
-  const formatJsonInWorker = (jsonString) => {
+  const formatJsonInWorker = (jsonString: string): Promise<string> => {
     return new Promise((resolve, reject) => {
       const worker = _getFormatWorker();
-      worker.onmessage = (e) => {
-        e.data.err ? reject(new Error(e.data.err)) : resolve(e.data.ok);
+      worker.onmessage = (e: MessageEvent<{ ok?: string; err?: string }>) => {
+        e.data.err ? reject(new Error(e.data.err)) : resolve(e.data.ok!);
       };
       worker.postMessage(jsonString);
     });
@@ -319,13 +495,14 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
           }
         }
       } else {
-        alert('Invalid JSON: ' + error.message);
+        alert('Invalid JSON: ' + (error as Error).message);
       }
     }
   };
 
   // Event listeners
   textarea.addEventListener('input', () => {
+    findEntriesCache = null;
     onInputChange();
     autoSaveInput();
 
@@ -337,14 +514,14 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     } else if (size > 500 * 1024) {
       formatLabel.textContent = `(${(size / 1024).toFixed(0)}KB)`;
       formatLabel.style.color = 'var(--text-tertiary)';
-    } else if (formatLabel.textContent.includes('KB') || formatLabel.textContent.includes('MB')) {
+    } else if (formatLabel.textContent!.includes('KB') || formatLabel.textContent!.includes('MB')) {
       // Clear size label if it was showing size info
       formatLabel.textContent = '';
       formatLabel.style.color = '';
     }
   });
 
-  textarea.addEventListener('paste', (e) => {
+  textarea.addEventListener('paste', (_e: ClipboardEvent) => {
     autoFormatEnabled = false; // 붙여넣기 시작 시 항상 비활성화
     setTimeout(() => {
       const text = textarea.value;
@@ -394,13 +571,20 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }, 10);
   });
 
-  textarea.addEventListener('keydown', (e) => {
+  textarea.addEventListener('keydown', (e: KeyboardEvent) => {
     // Ctrl+Enter: Execute query
     if (e.ctrlKey && e.key === 'Enter') {
       e.preventDefault();
       if (onExecuteQuery) {
         onExecuteQuery();
       }
+      return;
+    }
+
+    // Ctrl+F: Find in JSON
+    if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
+      e.preventDefault();
+      openFindDropdown();
       return;
     }
 
@@ -413,13 +597,53 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     handleTabKey(e);
   });
 
-  panel.querySelector('#formatJsonBtn').addEventListener('click', async () => {
+  // Find button
+  findBtn.addEventListener('click', () => {
+    if (findDropdown.style.display !== 'none') {
+      closeFindDropdown();
+    } else {
+      openFindDropdown();
+    }
+  });
+
+  // Find search input
+  findSearchInput.addEventListener('input', () => {
+    if (findDebounceTimer !== null) clearTimeout(findDebounceTimer);
+    findDebounceTimer = setTimeout(performFindSearch, 200);
+  });
+
+  findSearchInput.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      closeFindDropdown();
+      textarea.focus();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const firstItem = findResultList.querySelector<HTMLElement>('.find-result-item');
+      firstItem?.focus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const firstItem = findResultList.querySelector<HTMLElement>('.find-result-item');
+      firstItem?.click();
+    }
+  });
+
+  // Find close button
+  findCloseBtn.addEventListener('click', () => {
+    closeFindDropdown();
+    textarea.focus();
+  });
+
+  // Find toggles
+  findKeysToggle.addEventListener('change', performFindSearch);
+  findValuesToggle.addEventListener('change', performFindSearch);
+
+  panel.querySelector<HTMLButtonElement>('#formatJsonBtn')!.addEventListener('click', async () => {
     autoFormatEnabled = true; // 수동 포맷 클릭 시 자동 포맷 복구
     updateAutoFormatIndicator();
     await formatJson();
   });
 
-  panel.querySelector('#clearInputBtn').addEventListener('click', () => {
+  panel.querySelector<HTMLButtonElement>('#clearInputBtn')!.addEventListener('click', () => {
     textarea.value = '';
     currentFileName = null;
     updateFormatLabel(null);
@@ -437,32 +661,32 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
       parseCsvBtn.style.display = 'none';
       onInputChange();
     } catch (error) {
-      alert(error.message);
+      alert((error as Error).message);
     }
   });
 
-  panel.querySelector('#loadFileBtn').addEventListener('click', () => {
+  panel.querySelector<HTMLButtonElement>('#loadFileBtn')!.addEventListener('click', () => {
     fileInput.click();
   });
 
-  fileInput.addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+  fileInput.addEventListener('change', async (e: Event) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
 
     try {
       let content = await readFile(file);
-      const ext = file.name.split('.').pop().toLowerCase();
-      const size = content.length;
+      const ext = file.name.split('.').pop()!.toLowerCase();
+      const size = (content as string).length;
       const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
 
       // Auto-convert CSV/TSV to JSON
       if (ext === 'csv' || ext === 'tsv') {
         try {
-          content = await convertCsvToJson(content, file.name);
+          content = await convertCsvToJson(content as string, file.name);
           currentFileName = file.name;
           updateFormatLabel(file.name);
         } catch (error) {
-          alert(error.message + '\n\nShowing original content.');
+          alert((error as Error).message + '\n\nShowing original content.');
           currentFileName = file.name;
           updateFormatLabel(null);
         }
@@ -471,12 +695,12 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
         updateFormatLabel(null);
 
         // JSON 추출 시도
-        if (needsJsonExtraction(content)) {
+        if (needsJsonExtraction(content as string)) {
           const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
             confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
 
           if (shouldExtract) {
-            const extracted = extractJson(content);
+            const extracted = extractJson(content as string);
             if (extracted) {
               content = extracted;
             } else if (size > AUTO_EXTRACT_SIZE) {
@@ -485,19 +709,19 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
           }
         } else {
           // 유효한 JSON이면 자동 포맷팅
-          content = tryFormatJson(content);
+          content = tryFormatJson(content as string);
         }
       }
 
-      textarea.value = content;
+      textarea.value = content as string;
       onInputChange();
 
       // Immediately save file loads (포맷팅된 데이터 저장)
-      await Storage.saveInputHistory(content, currentFileName);
+      await Storage.saveInputHistory(content as string, currentFileName);
     } catch (error) {
-      alert(error.message);
+      alert((error as Error).message);
     }
-    e.target.value = '';
+    (e.target as HTMLInputElement).value = '';
   });
 
   // Sort toggle button
@@ -528,9 +752,9 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
   });
 
   // Search input
-  let searchDebounce = null;
+  let searchDebounce: ReturnType<typeof setTimeout> | null = null;
   searchInput.addEventListener('input', () => {
-    clearTimeout(searchDebounce);
+    if (searchDebounce !== null) clearTimeout(searchDebounce);
     searchDebounce = setTimeout(() => {
       loadHistory(searchInput.value);
     }, 300);
@@ -544,53 +768,57 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
     }
   });
 
-  // Close dropdown when clicking outside
-  document.addEventListener('click', (e) => {
-    if (!historyDropdown.contains(e.target) && e.target !== historyBtn) {
+  // Overlay click closes find dropdown
+  findOverlay.addEventListener('click', () => closeFindDropdown());
+
+  // Close history dropdown when clicking outside
+  document.addEventListener('click', (e: MouseEvent) => {
+    if (!historyDropdown.contains(e.target as Node) && e.target !== historyBtn) {
       historyDropdown.style.display = 'none';
     }
   });
 
-  // ESC key to close dropdown
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && historyDropdown.style.display !== 'none') {
-      historyDropdown.style.display = 'none';
+  // ESC key to close dropdowns
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      if (historyDropdown.style.display !== 'none') historyDropdown.style.display = 'none';
+      if (findDropdown.style.display !== 'none') findDropdown.style.display = 'none';
     }
   });
 
   // Drag and drop
-  panelContent.addEventListener('dragover', (e) => {
+  panelContent.addEventListener('dragover', (e: DragEvent) => {
     e.preventDefault();
     dragOverlay.classList.add('active');
   });
 
-  panelContent.addEventListener('dragleave', (e) => {
+  panelContent.addEventListener('dragleave', (e: DragEvent) => {
     if (e.target === panelContent) {
       dragOverlay.classList.remove('active');
     }
   });
 
-  panelContent.addEventListener('drop', async (e) => {
+  panelContent.addEventListener('drop', async (e: DragEvent) => {
     e.preventDefault();
     dragOverlay.classList.remove('active');
 
-    const file = e.dataTransfer.files[0];
+    const file = e.dataTransfer!.files[0];
     if (!file) return;
 
     try {
       let content = await readFile(file);
-      const ext = file.name.split('.').pop().toLowerCase();
-      const size = content.length;
+      const ext = file.name.split('.').pop()!.toLowerCase();
+      const size = (content as string).length;
       const AUTO_EXTRACT_SIZE = 100 * 1024; // 100KB
 
       // Auto-convert CSV/TSV to JSON
       if (ext === 'csv' || ext === 'tsv') {
         try {
-          content = await convertCsvToJson(content, file.name);
+          content = await convertCsvToJson(content as string, file.name);
           currentFileName = file.name;
           updateFormatLabel(file.name);
         } catch (error) {
-          alert(error.message + '\n\nShowing original content.');
+          alert((error as Error).message + '\n\nShowing original content.');
           currentFileName = file.name;
           updateFormatLabel(null);
         }
@@ -599,12 +827,12 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
         updateFormatLabel(null);
 
         // JSON 추출 시도
-        if (needsJsonExtraction(content)) {
+        if (needsJsonExtraction(content as string)) {
           const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
             confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
 
           if (shouldExtract) {
-            const extracted = extractJson(content);
+            const extracted = extractJson(content as string);
             if (extracted) {
               content = extracted;
             } else if (size > AUTO_EXTRACT_SIZE) {
@@ -613,32 +841,33 @@ export function createInputPanel(onInputChange, onExecuteQuery) {
           }
         } else {
           // 유효한 JSON이면 자동 포맷팅
-          content = tryFormatJson(content);
+          content = tryFormatJson(content as string);
         }
       }
 
-      textarea.value = content;
+      textarea.value = content as string;
       onInputChange();
 
       // Immediately save file drops (포맷팅된 데이터 저장)
-      await Storage.saveInputHistory(content, currentFileName);
+      await Storage.saveInputHistory(content as string, currentFileName);
     } catch (error) {
-      alert(error.message);
+      alert((error as Error).message);
     }
   });
 
   // API
-  panel.api = {
+  const el = panel as unknown as ComponentElement<InputPanelApi>;
+  el.api = {
     getCurrentFileName: () => currentFileName,
-    restoreInput: (content, fileName) => {
+    restoreInput: (content: string, fileName: string | null) => {
       textarea.value = content;
       currentFileName = fileName;
     },
-    setAutoPlayIndicator: (enabled) => {
-      const chip = panel.querySelector('#autoPlayChip');
+    setAutoPlayIndicator: (enabled: boolean) => {
+      const chip = panel.querySelector<HTMLElement>('#autoPlayChip')!;
       chip.style.display = enabled ? 'inline-block' : 'none';
     }
   };
 
-  return panel;
+  return el;
 }
