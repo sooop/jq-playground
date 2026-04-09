@@ -155,9 +155,23 @@ export function filterEntries(
   entries: JsonEntry[],
   query: string,
   matchKeys: boolean,
-  matchValues: boolean
+  matchValues: boolean,
+  useRegex = false
 ): JsonEntry[] {
   if (!query.trim()) return entries;
+  if (useRegex) {
+    let regex: RegExp;
+    try {
+      regex = new RegExp(query, 'i');
+    } catch {
+      return [];
+    }
+    return entries.filter(e => {
+      if (matchKeys && e.key && regex.test(e.key)) return true;
+      if (matchValues && regex.test(e.value)) return true;
+      return false;
+    });
+  }
   const q = query.toLowerCase();
   return entries.filter(e => {
     if (matchKeys && e.key && e.key.toLowerCase().includes(q)) return true;

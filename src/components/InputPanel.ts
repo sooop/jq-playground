@@ -83,6 +83,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
       <input type="text" id="inputFindSearch" placeholder="Search keys & values..." autocomplete="off">
       <label class="find-filter"><input type="checkbox" id="findKeysToggle" checked> Keys</label>
       <label class="find-filter"><input type="checkbox" id="findValuesToggle" checked> Values</label>
+      <label class="find-filter find-filter-regex"><input type="checkbox" id="findRegexToggle"> <span title="Use regular expression">.*</span></label>
       <span class="search-info" id="findMatchInfo"></span>
       <button id="findCloseBtn" title="Close (Escape)">×</button>
     </div>
@@ -100,6 +101,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   const findMatchInfo = findDropdown.querySelector<HTMLElement>('#findMatchInfo')!;
   const findKeysToggle = findDropdown.querySelector<HTMLInputElement>('#findKeysToggle')!;
   const findValuesToggle = findDropdown.querySelector<HTMLInputElement>('#findValuesToggle')!;
+  const findRegexToggle = findDropdown.querySelector<HTMLInputElement>('#findRegexToggle')!;
   const findCloseBtn = findDropdown.querySelector<HTMLButtonElement>('#findCloseBtn')!;
 
   // Sort state (default: timestamp)
@@ -256,10 +258,19 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
     text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
   // Find: highlight matching substring in text
-  const highlightMatch = (text: string, query: string): string => {
+  const highlightMatch = (text: string, query: string, useRegex = false): string => {
     if (!query) return escapeHtml(text);
-    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(escapedQuery, 'gi');
+    let regex: RegExp;
+    if (useRegex) {
+      try {
+        regex = new RegExp(query, 'gi');
+      } catch {
+        return escapeHtml(text);
+      }
+    } else {
+      const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      regex = new RegExp(escapedQuery, 'gi');
+    }
     const parts: string[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
@@ -285,7 +296,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   };
 
   // Find: render result items in the dropdown
-  const renderFindResults = (results: ReturnType<typeof filterEntries>, query: string): void => {
+  const renderFindResults = (results: ReturnType<typeof filterEntries>, query: string, useRegex = false): void => {
     const MAX_DISPLAY = 200;
     const val = textarea.value.trim();
 
@@ -302,6 +313,14 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
       return;
     }
 
+    if (useRegex) {
+      try { new RegExp(query); } catch {
+        findResultList.innerHTML = '<div class="find-empty-state find-regex-error">정규식 오류: 올바른 패턴을 입력하세요</div>';
+        findMatchInfo.textContent = '';
+        return;
+      }
+    }
+
     if (results.length === 0) {
       findResultList.innerHTML = '<div class="find-empty-state">일치하는 항목 없음</div>';
       findMatchInfo.textContent = '0개';
@@ -312,8 +331,8 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
     findMatchInfo.textContent = overflow ? `${MAX_DISPLAY}+개` : `${results.length}개`;
 
     findResultList.innerHTML = results.slice(0, MAX_DISPLAY).map((e, i) => {
-      const pathHtml = query ? highlightMatch(e.path, query) : escapeHtml(e.path);
-      const valueHtml = query ? highlightMatch(e.value, query) : escapeHtml(e.value);
+      const pathHtml = query ? highlightMatch(e.path, query, useRegex) : escapeHtml(e.path);
+      const valueHtml = query ? highlightMatch(e.value, query, useRegex) : escapeHtml(e.value);
       return `<div class="find-result-item" tabindex="-1"
         data-ks="${e.keyStart}" data-ke="${e.keyEnd}"
         data-vs="${e.valueStart}" data-ve="${e.valueEnd}"
@@ -370,8 +389,9 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
       findEntriesCache = scanJson(textarea.value);
     }
     const query = findSearchInput.value;
-    const filtered = filterEntries(findEntriesCache, query, findKeysToggle.checked, findValuesToggle.checked);
-    renderFindResults(filtered, query);
+    const useRegex = findRegexToggle.checked;
+    const filtered = filterEntries(findEntriesCache, query, findKeysToggle.checked, findValuesToggle.checked, useRegex);
+    renderFindResults(filtered, query, useRegex);
   };
 
   // Find: open/close
@@ -636,6 +656,10 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   // Find toggles
   findKeysToggle.addEventListener('change', performFindSearch);
   findValuesToggle.addEventListener('change', performFindSearch);
+  findRegexToggle.addEventListener('change', () => {
+    findSearchInput.placeholder = findRegexToggle.checked ? 'Regex pattern...' : 'Search keys & values...';
+    performFindSearch();
+  });
 
   panel.querySelector<HTMLButtonElement>('#formatJsonBtn')!.addEventListener('click', async () => {
     autoFormatEnabled = true; // 수동 포맷 클릭 시 자동 포맷 복구
