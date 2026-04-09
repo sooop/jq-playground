@@ -1,0 +1,136 @@
+/* ===== jq-playground Design Tokens ===== */
+/* 모든 색·간격·반경·그림자·폰트를 CSS variable로 관리 */
+
+/* ── 라이트 기본 ── */
+:root {
+    /* Background (zinc/slate 계열) */
+    --bg-primary:    #ffffff;
+    --bg-secondary:  #fafaf9;
+    --bg-tertiary:   #f4f4f5;
+    --bg-hover:      #f1f5f9;
+
+    /* Text */
+    --text-primary:   #18181b;
+    --text-secondary: #52525b;
+    --text-tertiary:  #71717a;
+    --text-muted:     #a1a1aa;
+
+    /* Border */
+    --border-primary:   #e4e4e7;
+    --border-secondary: #f4f4f5;
+    --border-light:     #fafaf9;
+
+    /* ── 삼면화(Triptych) 패널 고유 Accent — 항상 3색 동시 활성 ── */
+    --accent-input:   #d97706;  /* amber  — Input 패널 */
+    --accent-query:   #16a34a;  /* green  — Query 패널 */
+    --accent-output:  #e11d48;  /* rose   — Output 패널 */
+
+    /* 현재 포커스된 패널을 따라 바뀌는 전역 accent (기본: query) */
+    --accent-current: var(--accent-query);
+
+    /* 전역 accent (구 --accent-primary 호환, --accent-current로 대체) */
+    --accent-primary: var(--accent-current);
+    --accent-hover:   color-mix(in srgb, var(--accent-current) 80%, #000);
+    --accent-bg:      color-mix(in srgb, var(--accent-current) 10%, transparent);
+    --accent-subtle:  color-mix(in srgb, var(--accent-current) 6%, transparent);
+
+    /* Status — accent 독립 */
+    --error-color:   #e11d48;
+    --error-bg:      #fff1f2;
+    --success-color: #16a34a;
+    --success-bg:    #f0fdf4;
+    --warning-color: #d97706;
+    --warning-bg:    #fffbeb;
+    --info-color:    #2563eb;
+    --info-bg:       #eff6ff;
+
+    /* Resizer */
+    --resizer-bg:     #e4e4e7;
+    --resizer-hover:  var(--panel-accent, var(--accent-current));
+    --resizer-active: var(--panel-accent, var(--accent-current));
+
+    /* Shadow (shadcn 스타일) */
+    --shadow-sm:  0 1px 2px 0 rgba(0,0,0,.05);
+    --shadow-md:  0 4px 6px -1px rgba(0,0,0,.07), 0 2px 4px -2px rgba(0,0,0,.05);
+    --shadow-lg:  0 10px 15px -3px rgba(0,0,0,.07), 0 4px 6px -4px rgba(0,0,0,.05);
+    --shadow-xl:  0 20px 25px -5px rgba(0,0,0,.07), 0 8px 10px -6px rgba(0,0,0,.04);
+
+    --shadow-color: rgba(0,0,0,.08);
+    --shadow-heavy: rgba(0,0,0,.16);
+    --overlay-bg:   rgba(0,0,0,.45);
+
+    /* Focus ring — 패널 내부에서는 --panel-accent 사용 */
+    --ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-current);
+
+    /* Radius */
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-xl: 12px;
+
+    /* Spacing */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+
+    /* Typography */
+    --font-display: "Instrument Serif", ui-serif, Georgia, "Times New Roman", serif;
+    --font-sans:    "Geist", "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    --font-size-xs:  11px;
+    --font-size-sm:  12px;
+    --font-size-base:13px;
+    --font-size-md:  14px;
+    --font-size-lg:  16px;
+
+    /* Transitions */
+    --transition-fast: 100ms ease;
+    --transition-base: 150ms ease;
+    --transition-slow: 250ms ease;
+}
+
+/* ── 다크 모드 ── */
+:root.dark {
+    --bg-primary:    #18181b;
+    --bg-secondary:  #0a0a0a;
+    --bg-tertiary:   #27272a;
+    --bg-hover:      #3f3f46;
+
+    --text-primary:   #fafafa;
+    --text-secondary: #a1a1aa;
+    --text-tertiary:  #71717a;
+    --text-muted:     #52525b;
+
+    --border-primary:   #27272a;
+    --border-secondary: #3f3f46;
+    --border-light:     #27272a;
+
+    /* 다크에서는 더 밝은 버전의 3색 */
+    --accent-input:   #fbbf24;  /* amber  light */
+    --accent-query:   #4ade80;  /* green  light */
+    --accent-output:  #fb7185;  /* rose   light */
+
+    --error-color:   #fb7185;
+    --error-bg:      #1c0a12;
+    --success-color: #4ade80;
+    --success-bg:    #052e16;
+    --warning-color: #fbbf24;
+    --warning-bg:    #1c1100;
+    --info-color:    #60a5fa;
+    --info-bg:       #0c1a2e;
+
+    --resizer-bg:     #3f3f46;
+
+    --shadow-color: rgba(0,0,0,.4);
+    --shadow-heavy: rgba(0,0,0,.6);
+    --overlay-bg:   rgba(0,0,0,.65);
+
+    --shadow-sm:  0 1px 2px 0 rgba(0,0,0,.3);
+    --shadow-md:  0 4px 6px -1px rgba(0,0,0,.4), 0 2px 4px -2px rgba(0,0,0,.3);
+    --shadow-lg:  0 10px 15px -3px rgba(0,0,0,.4), 0 4px 6px -4px rgba(0,0,0,.3);
+    --shadow-xl:  0 20px 25px -5px rgba(0,0,0,.4), 0 8px 10px -6px rgba(0,0,0,.3);
+}

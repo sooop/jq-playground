@@ -1,0 +1,212 @@
+/* ===== Command Palette ===== */
+
+.command-palette-overlay {
+    position: fixed;
+    inset: 0;
+    background: var(--overlay-bg);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 15vh;
+    z-index: 9000;
+    animation: cp-overlay-in var(--transition-fast);
+}
+
+.command-palette-overlay.hidden {
+    display: none;
+}
+
+@keyframes cp-overlay-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.command-palette {
+    width: min(620px, 92vw);
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: cp-in var(--transition-base);
+}
+
+@keyframes cp-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0)   scale(1); }
+}
+
+/* ── 검색 입력 영역 ── */
+.cp-search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border-primary);
+    background: var(--bg-primary);
+}
+
+.cp-search-icon {
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+}
+
+.cp-search-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    font-size: var(--font-size-md);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    caret-color: var(--accent-primary);
+    line-height: 1.5;
+}
+
+.cp-search-input::placeholder {
+    color: var(--text-muted);
+}
+
+.cp-clear-btn {
+    display: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    border-radius: var(--radius-sm);
+    padding: 2px;
+    line-height: 0;
+    flex-shrink: 0;
+}
+
+.cp-clear-btn.visible {
+    display: flex;
+    align-items: center;
+}
+
+.cp-clear-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+/* ── 결과 목록 ── */
+.cp-results {
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+.cp-empty {
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+    color: var(--text-muted);
+    font-size: var(--font-size-sm);
+}
+
+/* ── 섹션 라벨 ── */
+.cp-section-label {
+    padding: var(--space-2) var(--space-4) var(--space-1);
+    font-size: var(--font-size-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-muted);
+    user-select: none;
+}
+
+/* ── 팔레트 아이템 ── */
+.cp-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border-radius: 0;
+}
+
+.cp-item:hover,
+.cp-item[aria-selected="true"] {
+    background: var(--bg-hover);
+}
+
+.cp-item[aria-selected="true"] .cp-item-icon {
+    color: var(--accent-primary);
+}
+
+.cp-item:focus {
+    outline: none;
+}
+
+.cp-item-icon {
+    display: flex;
+    align-items: center;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+    width: 16px;
+}
+
+.cp-item-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.cp-item-label {
+    font-size: var(--font-size-base);
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cp-item-desc {
+    font-size: var(--font-size-xs);
+    color: var(--text-tertiary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+}
+
+.cp-item-badge {
+    font-size: 10px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    flex-shrink: 0;
+}
+
+/* ── 푸터 ── */
+.cp-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-top: 1px solid var(--border-primary);
+    background: var(--bg-tertiary);
+}
+
+.cp-hint {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.cp-hint kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    padding: 1px 5px;
+    box-shadow: var(--shadow-sm);
+    color: var(--text-secondary);
+}

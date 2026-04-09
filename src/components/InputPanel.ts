@@ -8,7 +8,9 @@ import type { ComponentElement, InputPanelApi } from '../types';
 
 export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() => void) | null) {
   const panel = document.createElement('div');
-  panel.className = 'panel';
+  panel.className = 'panel input-panel';
+  panel.setAttribute('role', 'region');
+  panel.setAttribute('aria-label', 'JSON 입력');
   panel.innerHTML = `
     <div class="panel-header">
       <span class="panel-title">
@@ -381,7 +383,35 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   // Find: run search and render
   const performFindSearch = (): void => {
     if (textarea.value.length > 2 * 1024 * 1024) {
-      findResultList.innerHTML = '<div class="find-empty-state">JSON이 너무 큽니다 (2MB 초과)</div>';
+      const term = findSearchInput.value.trim();
+      if (!term) {
+        findResultList.innerHTML =
+          '<div class="find-empty-state">JSON이 2MB를 초과합니다. 검색어를 입력하면 jq로 검색합니다.</div>';
+        findMatchInfo.textContent = '';
+        return;
+      }
+      // 범용 패턴 검색 쿼리를 쿼리 패널에 주입
+      const escaped = term.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      const injected =
+        `"${escaped}" as $pattern |\n` +
+        `[ paths(scalars) as $p |\n` +
+        `  select(\n` +
+        `    (getpath($p) | tostring | (. != "") and test($pattern; "i")) or\n` +
+        `    ($p | last | tostring | test($pattern; "i")) // false\n` +
+        `  ) |\n` +
+        `  { ($p | map(tostring) | join(".")): getpath($p) }\n` +
+        `] | add`;
+      const queryTa = document.querySelector<HTMLTextAreaElement>('#query');
+      if (queryTa) {
+        queryTa.value = injected;
+        queryTa.dispatchEvent(new Event('input', { bubbles: true }));
+        queryTa.focus();
+      }
+      // Find 드롭다운 닫기
+      findDropdown.style.display = 'none';
+      findOverlay.style.display = 'none';
+      findResultList.innerHTML =
+        '<div class="find-empty-state">2MB 초과 — 범용 검색 쿼리를 쿼리 패널에 주입했습니다.</div>';
       findMatchInfo.textContent = '';
       return;
     }

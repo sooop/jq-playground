@@ -1,0 +1,221 @@
+/* ===== Header & Toolbar ===== */
+
+.header {
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-primary);
+    height: 40px;
+    min-height: 40px;
+    overflow: visible;
+    z-index: 100;
+    position: relative;
+}
+
+/* ── Toolbar 레이아웃 ── */
+.toolbar {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    padding: 0;
+    gap: 0;
+}
+
+/* ── 로고 ── */
+.toolbar-logo {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-4);
+    height: 100%;
+    color: var(--accent-current);
+    flex-shrink: 0;
+}
+
+.toolbar-logo svg {
+    opacity: 0.9;
+}
+
+.toolbar-logo-text {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-size: 16px;
+    font-weight: 400;
+    color: var(--text-primary);
+    letter-spacing: 0;
+}
+
+/* ── 메뉴바 ── */
+.toolbar-menubar {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    flex: 1;
+}
+
+.toolbar-menu-wrapper {
+    position: relative;
+    height: 100%;
+    display: flex;
+    align-items: center;
+}
+
+.toolbar-menu-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0 var(--space-3);
+    height: 100%;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    transition: color var(--transition-fast), background var(--transition-fast);
+    border-radius: 0;
+}
+
+.toolbar-menu-btn:hover,
+.toolbar-menu-btn[aria-expanded="true"] {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+}
+
+.toolbar-menu-btn:focus-visible {
+    outline: none;
+    box-shadow: inset var(--ring);
+}
+
+/* ── 드롭다운 ── */
+.toolbar-dropdown {
+    position: absolute;
+    top: calc(100% + 1px);
+    left: 0;
+    min-width: 180px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: var(--space-1);
+    z-index: 1000;
+    animation: dropdown-in 100ms ease;
+}
+
+@keyframes dropdown-in {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.toolbar-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-sm);
+    color: var(--text-primary);
+    text-align: left;
+    transition: background var(--transition-fast);
+}
+
+.toolbar-dropdown-item:hover {
+    background: var(--bg-hover);
+}
+
+.toolbar-dropdown-item:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+.toolbar-item-icon {
+    display: flex;
+    align-items: center;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.toolbar-item-label {
+    flex: 1;
+}
+
+.toolbar-item-shortcut {
+    font-size: var(--font-size-xs);
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    margin-left: auto;
+}
+
+/* ── 우측 액션 영역 ── */
+.toolbar-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 0 var(--space-2) 0 var(--space-3);
+    height: 100%;
+    flex-shrink: 0;
+}
+
+/* ── 아이콘 버튼 (공용) ── */
+.toolbar-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: var(--space-1) var(--space-2);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    font-size: var(--font-size-xs);
+    transition: color var(--transition-fast), background var(--transition-fast);
+    height: 28px;
+}
+
+.toolbar-icon-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
+.toolbar-icon-btn:focus-visible {
+    outline: none;
+    box-shadow: var(--ring);
+}
+
+/* ── 팔레트 버튼 ── */
+.toolbar-palette-btn {
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    gap: var(--space-2);
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    letter-spacing: 0.2px;
+}
+
+.toolbar-palette-btn:hover {
+    border-color: var(--accent-current);
+    color: var(--accent-current);
+    background: var(--accent-bg);
+}
+
+.toolbar-palette-hint {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    opacity: 0.7;
+}
+
+/* ── 테마 토글 버튼 ── */
+.theme-toggle {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    color: var(--text-secondary);
+    border-radius: var(--radius-md);
+}
+
+.theme-toggle:hover {
+    color: var(--accent-current);
+    background: var(--accent-bg);
+}

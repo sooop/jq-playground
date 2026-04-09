@@ -7,6 +7,7 @@ const STORAGE_KEYS = {
   HISTORY: 'jq-history',
   SAVED_QUERIES: 'jq-saved-queries',
   THEME: 'jq-theme',
+  ACCENT: 'jq-accent-theme',
   INPUT_HISTORY: 'jq-input-history',
   MIGRATION_FLAG: 'jq-migration-done'
 };
@@ -533,6 +534,24 @@ export class Storage {
       localStorage.setItem(STORAGE_KEYS.THEME, theme);
     } catch (e) {
       console.error('Failed to save theme:', e);
+    }
+  }
+
+  // ==================== ACCENT THEME ====================
+
+  static getAccent(): string {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.ACCENT) || 'amber';
+    } catch (e) {
+      return 'amber';
+    }
+  }
+
+  static saveAccent(accent: string) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.ACCENT, accent);
+    } catch (e) {
+      console.error('Failed to save accent:', e);
     }
   }
 

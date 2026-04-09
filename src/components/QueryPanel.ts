@@ -64,7 +64,9 @@ function fuzzyMatch(pattern: string, text: string): true | { match: boolean; sco
 
 export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (query: string) => void, onExecute: (() => void) | null, getInputKeys: (() => string[]) | null = null) {
   const panel = document.createElement('div');
-  panel.className = 'panel';
+  panel.className = 'panel query-panel';
+  panel.setAttribute('role', 'region');
+  panel.setAttribute('aria-label', 'jq 쿼리');
 
   panel.innerHTML = `
     <div class="panel-header">
@@ -80,8 +82,8 @@ export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (qu
       </div>
     </div>
     <div class="panel-content autocomplete-container">
-      <textarea id="query" placeholder="Enter jq query..."></textarea>
-      <div class="autocomplete-list" id="autocompleteList"></div>
+      <textarea id="query" placeholder="Enter jq query..." aria-label="jq 쿼리 입력" aria-haspopup="listbox" aria-autocomplete="list" aria-controls="autocompleteList"></textarea>
+      <div class="autocomplete-list" id="autocompleteList" role="listbox" aria-label="자동완성 목록"></div>
       <div class="autocomplete-doc" id="autocompleteDoc"></div>
     </div>
   `;
@@ -1407,14 +1409,21 @@ export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (qu
     autocompleteList.innerHTML = autocompleteItems.map((item, index) => {
       const inputType = item.inputType || 'any';
       const typeInfo = INPUT_TYPE_INFO[inputType] || INPUT_TYPE_INFO['any'];
+      const isSelected = index === selectedAutocompleteIndex;
       return `
-        <div class="autocomplete-item ${index === selectedAutocompleteIndex ? 'selected' : ''}" data-index="${index}">
+        <div class="autocomplete-item ${isSelected ? 'selected' : ''}" data-index="${index}" role="option" aria-selected="${isSelected}" id="ac-item-${index}">
           <span class="autocomplete-name" title="${escapeHtml(item.name)}">${escapeHtml(truncatePath(item.name))}</span>
           <span class="autocomplete-type" style="color: ${typeInfo.color}">${typeInfo.label}</span>
           <span class="autocomplete-desc">${escapeHtml(item.desc)}</span>
         </div>
       `;
     }).join('');
+    // ARIA 활성 자손 업데이트
+    if (selectedAutocompleteIndex >= 0) {
+      textarea.setAttribute('aria-activedescendant', `ac-item-${selectedAutocompleteIndex}`);
+    } else {
+      textarea.removeAttribute('aria-activedescendant');
+    }
 
     // Add click and hover listeners
     autocompleteList.querySelectorAll<HTMLElement>('.autocomplete-item').forEach(item => {

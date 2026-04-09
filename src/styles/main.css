@@ -1,2 +1,5 @@
+@import './tokens.css';
 @import './layout.css';
+@import './toolbar.css';
+@import './command-palette.css';
 @import './components.css';

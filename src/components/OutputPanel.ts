@@ -5,7 +5,9 @@ import type { OutputPanelElement, FormatResult } from '../types';
 
 export function createOutputPanel() {
   const panel = document.createElement('div');
-  panel.className = 'panel';
+  panel.className = 'panel output-panel';
+  panel.setAttribute('role', 'region');
+  panel.setAttribute('aria-label', '출력 결과');
   panel.innerHTML = `
     <div class="panel-header">
       <span class="panel-title">Output <span id="lastRunTime" style="font-weight:normal;color:var(--text-tertiary);font-size:11px;margin-left:8px;"></span></span>

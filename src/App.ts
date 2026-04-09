@@ -9,6 +9,9 @@ import { createSnippets } from './components/Snippets';
 import { jqEngine } from './core/jq-engine';
 import { extractKeys } from './core/jq-functions';
 import { Storage } from './utils/storage';
+import { registerKeymap, initKeymap } from './utils/keymap';
+import { createCommandPalette } from './components/CommandPalette';
+import type { CommandPaletteApi } from './components/CommandPalette';
 
 const RESIZE_STORAGE_KEY = 'jq-panel-resize';
 
@@ -26,6 +29,7 @@ export class App {
   private cheatsheet: ComponentElement<PanelToggleApi> | null = null;
   private snippets: ComponentElement<PanelToggleApi> | null = null;
   private executionGeneration = 0;
+  private commandPalette: { element: HTMLElement; api: CommandPaletteApi } | null = null;
 
   constructor() {
   }
@@ -53,7 +57,8 @@ export class App {
       () => this.loadSample(),
       () => this.cheatsheet.api.toggle(),
       () => this.helpModal.api.show(),
-      () => this.snippets.api.toggle()
+      () => this.snippets.api.toggle(),
+      () => this.openCommandPalette(),
     );
 
     this.inputPanel = createInputPanel(
@@ -131,11 +136,14 @@ export class App {
     container.appendChild(header);
     container.appendChild(main);
 
+    // Command Palette 마운트
+    this.commandPalette = createCommandPalette();
     app.appendChild(container);
     app.appendChild(this.modal);
     app.appendChild(this.helpModal);
     app.appendChild(this.snippets);
     app.appendChild(this.cheatsheet);
+    app.appendChild(this.commandPalette.element);
 
     // Initialize auto-play chip indicator
     this.inputPanel.api.setAutoPlayIndicator(this.outputPanel.api.isAutoPlayEnabled());
@@ -167,13 +175,82 @@ export class App {
       }
     });
 
-    // Global keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-      // Ctrl+Shift+E: Toggle auto-play
-      if (e.ctrlKey && e.shiftKey && e.key === 'E') {
-        e.preventDefault();
-        this.outputPanel.api.toggleAutoPlay();
-        // Callback will be triggered automatically
+    // ── 글로벌 단축키 등록 ──
+    registerKeymap({
+      id: 'toggle-autoplay',
+      keys: 'Ctrl+Shift+E',
+      label: 'Auto-play 토글',
+      handler: () => this.outputPanel.api.toggleAutoPlay(),
+    });
+
+    registerKeymap({
+      id: 'open-command-palette',
+      keys: 'Ctrl+K',
+      label: '커맨드 팔레트 열기',
+      handler: () => this.openCommandPalette(),
+    });
+
+    registerKeymap({
+      id: 'focus-input',
+      keys: 'Ctrl+1',
+      label: 'Input 패널 포커스',
+      handler: () => this.focusPanel('input'),
+    });
+
+    registerKeymap({
+      id: 'focus-query',
+      keys: 'Ctrl+2',
+      label: 'Query 패널 포커스',
+      handler: () => this.focusPanel('query'),
+    });
+
+    registerKeymap({
+      id: 'focus-output',
+      keys: 'Ctrl+3',
+      label: 'Output 패널 포커스',
+      handler: () => this.focusPanel('output'),
+    });
+
+    registerKeymap({
+      id: 'cycle-panels',
+      keys: 'F6',
+      label: '다음 패널로 포커스',
+      handler: () => this.cyclePanels(1),
+    });
+
+    registerKeymap({
+      id: 'cycle-panels-reverse',
+      keys: 'Shift+F6',
+      label: '이전 패널로 포커스',
+      handler: () => this.cyclePanels(-1),
+    });
+
+    registerKeymap({
+      id: 'show-shortcuts',
+      keys: '?',
+      label: '단축키 목록',
+      when: () => !document.querySelector('.modal-overlay.show'),
+      handler: () => this.helpModal.api.show(),
+    });
+
+    // 단일 글로벌 keydown 디스패처 초기화
+    initKeymap();
+
+    // 패널 포커스 이벤트로 --accent-current 전역 동기화 (마우스/키보드 모두)
+    const panelAccentMap: Record<string, string> = {
+      'input-panel':  'var(--accent-input)',
+      'query-panel':  'var(--accent-query)',
+      'output-panel': 'var(--accent-output)',
+    };
+    document.addEventListener('focusin', (e) => {
+      const target = e.target as HTMLElement;
+      const panelEl = target.closest<HTMLElement>('.panel');
+      if (!panelEl) return;
+      for (const [cls, accentVar] of Object.entries(panelAccentMap)) {
+        if (panelEl.classList.contains(cls)) {
+          document.documentElement.style.setProperty('--accent-current', accentVar);
+          break;
+        }
       }
     });
 
@@ -184,6 +261,52 @@ export class App {
       this.queryPanel.api.terminateWorker?.();
       jqEngine.terminate();
     });
+  }
+
+  /** 커맨드 팔레트 열기 */
+  openCommandPalette() {
+    this.commandPalette?.api.open();
+  }
+
+  /** 패널 accent를 전역 --accent-current에 반영 */
+  private syncAccentCurrent(panelEl: HTMLElement | null) {
+    if (!panelEl) return;
+    const accent = getComputedStyle(panelEl).getPropertyValue('--panel-accent').trim();
+    if (accent) {
+      document.documentElement.style.setProperty('--accent-current', accent);
+    }
+  }
+
+  /** Ctrl+1/2/3 으로 해당 패널 textarea/content에 포커스 */
+  focusPanel(panel: 'input' | 'query' | 'output') {
+    const selectors = {
+      input:  '#input',
+      query:  '#query',
+      output: '.panel-content .output-content, .panel-content .virtual-viewport',
+    };
+    const panelSelectors = {
+      input:  '.input-panel',
+      query:  '.query-panel',
+      output: '.output-panel',
+    };
+    const el = document.querySelector<HTMLElement>(selectors[panel]);
+    const panelEl = document.querySelector<HTMLElement>(panelSelectors[panel]);
+    this.syncAccentCurrent(panelEl);
+    el?.focus();
+  }
+
+  /** F6 / Shift+F6 으로 패널 순환 */
+  cyclePanels(dir: 1 | -1) {
+    const panels = [
+      document.querySelector<HTMLElement>('#input'),
+      document.querySelector<HTMLElement>('#query'),
+      document.querySelector<HTMLElement>('.output-content, .virtual-viewport'),
+    ].filter(Boolean) as HTMLElement[];
+
+    const active = document.activeElement as HTMLElement;
+    let idx = panels.findIndex(p => p === active || p?.contains(active));
+    idx = ((idx + dir) + panels.length) % panels.length;
+    panels[idx]?.focus();
   }
 
   /** Execute once without changing auto-play state. */
@@ -310,6 +433,7 @@ export class App {
     let isResizingH = false;
     hResizer.addEventListener('mousedown', (e) => {
       isResizingH = true;
+      hResizer.classList.add('active');
       document.body.style.cursor = 'col-resize';
       e.preventDefault();
     });
@@ -318,6 +442,7 @@ export class App {
     let isResizingV = false;
     vResizer.addEventListener('mousedown', (e) => {
       isResizingV = true;
+      vResizer.classList.add('active');
       document.body.style.cursor = 'row-resize';
       e.preventDefault();
     });
@@ -344,6 +469,8 @@ export class App {
       if (isResizingH || isResizingV) {
         this.savePanelSizes(topPanel, main);
       }
+      if (isResizingH) hResizer.classList.remove('active');
+      if (isResizingV) vResizer.classList.remove('active');
       isResizingH = false;
       isResizingV = false;
       document.body.style.cursor = '';

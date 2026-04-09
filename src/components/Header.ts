@@ -1,77 +1,70 @@
 import { Storage } from '../utils/storage';
+import { createToolbar } from './Toolbar';
+import { SunIcon, MoonIcon, MonitorIcon } from '../icons';
 
-export function createHeader(onLoadSample, onToggleCheatsheet, onShowHelp, onToggleSnippets) {
-  const header = document.createElement('div');
+export function createHeader(
+  onLoadSample: () => void,
+  onToggleCheatsheet: () => void,
+  onShowHelp: () => void,
+  onToggleSnippets: () => void,
+  onOpenCommandPalette?: () => void,
+) {
+  const header = document.createElement('header');
   header.className = 'header';
-  header.innerHTML = `
-    <h1>jq Playground</h1>
-    <div class="header-actions">
-      <button id="themeToggleBtn" class="theme-toggle" title="Toggle dark mode">☀️</button>
-      <button id="helpBtn">Help</button>
-      <button id="loadSampleBtn">Load Sample</button>
-      <button id="toggleSnippetsBtn">Snippets</button>
-      <button id="toggleSyntaxBtn">Syntax</button>
-      <a href="https://jqlang.github.io/jq/manual/" target="_blank" style="text-decoration: none;">
-        <button>Manual</button>
-      </a>
-    </div>
-  `;
 
-  const themeToggleBtn = header.querySelector<HTMLButtonElement>('#themeToggleBtn')!;
+  // ── 테마 토글 버튼 (헤더 우측 끝) ──
+  const themeBtn = document.createElement('button');
+  themeBtn.className = 'toolbar-icon-btn theme-toggle';
+  themeBtn.setAttribute('aria-label', '테마 전환');
 
-  // Get system dark mode preference
   const systemDarkMode = window.matchMedia('(prefers-color-scheme: dark)');
 
-  // Apply theme based on setting
-  function applyTheme(theme) {
+  function applyTheme(theme: string) {
     const isDark = theme === 'dark' || (theme === 'system' && systemDarkMode.matches);
     document.documentElement.classList.toggle('dark', isDark);
 
-    // Update button icon
     if (theme === 'system') {
-      themeToggleBtn.textContent = '💻';
-      themeToggleBtn.title = 'Theme: System';
+      themeBtn.innerHTML = MonitorIcon;
+      themeBtn.title = '테마: 시스템';
     } else if (theme === 'dark') {
-      themeToggleBtn.textContent = '🌙';
-      themeToggleBtn.title = 'Theme: Dark';
+      themeBtn.innerHTML = MoonIcon;
+      themeBtn.title = '테마: 다크';
     } else {
-      themeToggleBtn.textContent = '☀️';
-      themeToggleBtn.title = 'Theme: Light';
+      themeBtn.innerHTML = SunIcon;
+      themeBtn.title = '테마: 라이트';
     }
   }
 
-  // Initialize theme from storage
   const savedTheme = Storage.getTheme();
   applyTheme(savedTheme);
 
-  // Listen for system theme changes (only when theme is 'system')
   systemDarkMode.addEventListener('change', () => {
     if (Storage.getTheme() === 'system') {
       applyTheme('system');
     }
   });
 
-  // Theme toggle handler: light -> dark -> system -> light
-  themeToggleBtn.addEventListener('click', () => {
-    const currentTheme = Storage.getTheme();
-    let nextTheme;
-
-    if (currentTheme === 'light') {
-      nextTheme = 'dark';
-    } else if (currentTheme === 'dark') {
-      nextTheme = 'system';
-    } else {
-      nextTheme = 'light';
-    }
-
-    Storage.saveTheme(nextTheme);
-    applyTheme(nextTheme);
+  themeBtn.addEventListener('click', () => {
+    const cur = Storage.getTheme();
+    const next = cur === 'light' ? 'dark' : cur === 'dark' ? 'system' : 'light';
+    Storage.saveTheme(next);
+    applyTheme(next);
   });
 
-  header.querySelector('#helpBtn').addEventListener('click', onShowHelp);
-  header.querySelector('#loadSampleBtn').addEventListener('click', onLoadSample);
-  header.querySelector('#toggleSnippetsBtn').addEventListener('click', onToggleSnippets);
-  header.querySelector('#toggleSyntaxBtn').addEventListener('click', onToggleCheatsheet);
+  // ── Toolbar ──
+  const toolbar = createToolbar({
+    onLoadSample,
+    onToggleSnippets,
+    onToggleCheatsheet,
+    onShowHelp,
+    onOpenManual: () => window.open('https://jqlang.github.io/jq/manual/', '_blank'),
+    onOpenCommandPalette: onOpenCommandPalette ?? (() => {}),
+  });
 
+  // 테마 버튼을 toolbar 우측 actions에 삽입
+  const toolbarActions = toolbar.querySelector('.toolbar-actions') as HTMLElement;
+  toolbarActions.insertBefore(themeBtn, toolbarActions.firstChild);
+
+  header.appendChild(toolbar);
   return header;
 }
