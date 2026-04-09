@@ -74,10 +74,11 @@ export function jsonToHTML(data, isActualArray = true) {
 
   const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
 
-  let html = warningMsg + '<table><thead><tr>';
+  let html = warningMsg + '<div class="csv-table-wrap"><table><thead><tr>';
   keys.forEach(key => {
-    html += `<th>${escapeHtml(key)}</th>`;
+    html += `<th><span class="col-label">${escapeHtml(key)}</span><div class="col-resize-handle"></div></th>`;
   });
+  html += '<th class="col-spacer"></th>';
   html += '</tr></thead><tbody>';
 
   rows.forEach(row => {
@@ -86,10 +87,11 @@ export function jsonToHTML(data, isActualArray = true) {
       const value = row[key] !== undefined ? row[key] : '';
       html += `<td>${escapeHtml(String(value))}</td>`;
     });
+    html += '<td class="col-spacer"></td>';
     html += '</tr>';
   });
 
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
   return html;
 }
 

@@ -95,6 +95,62 @@ export function createOutputPanel() {
     return stats.join('');
   }
 
+  // CSV table column resize
+  function initTableResize(container: HTMLElement) {
+    const table = container.querySelector<HTMLTableElement>('.csv-table-wrap table');
+    if (!table) return;
+    const headers = Array.from(table.querySelectorAll<HTMLElement>('thead th:not(.col-spacer)'));
+    if (!headers.length) return;
+
+    let colgroup: HTMLElement | null = null;
+    let isFixed = false;
+
+    function ensureFixed() {
+      if (isFixed) return;
+      isFixed = true;
+      const widths = headers.map(th => th.getBoundingClientRect().width);
+      colgroup = document.createElement('colgroup');
+      widths.forEach(w => {
+        const col = document.createElement('col');
+        col.style.width = Math.max(50, w) + 'px';
+        colgroup!.appendChild(col);
+      });
+      colgroup.appendChild(document.createElement('col')); // spacer col
+      table.insertBefore(colgroup, table.firstChild);
+      table.style.tableLayout = 'fixed';
+    }
+
+    headers.forEach((th, i) => {
+      const handle = th.querySelector<HTMLElement>('.col-resize-handle');
+      if (!handle) return;
+      handle.addEventListener('mousedown', (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        ensureFixed();
+        const cols = Array.from(colgroup!.querySelectorAll<HTMLElement>('col'));
+        const col = cols[i];
+        if (!col) return;
+        const startX = e.clientX;
+        const startWidth = parseFloat(col.style.width) || th.offsetWidth;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        handle.classList.add('resizing');
+        const onMouseMove = (ev: MouseEvent) => {
+          col.style.width = Math.max(40, startWidth + (ev.clientX - startX)) + 'px';
+        };
+        const onMouseUp = () => {
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+          handle.classList.remove('resizing');
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      });
+    });
+  }
+
   // Flash effect cleanup
   output.addEventListener('animationend', () => {
     output.classList.remove('flash');
@@ -319,6 +375,7 @@ export function createOutputPanel() {
         isVirtualScrollActive = false;
         output.innerHTML = jsonToHTML(data, Array.isArray(data));
         lastCsvCache = jsonToCSV(data);
+        initTableResize(output);
       }
 
       output.classList.remove('flash');
@@ -389,6 +446,7 @@ export function createOutputPanel() {
         isVirtualScrollActive = false;
         output.innerHTML = content; // HTML table
         if (csvCache) lastCsvCache = csvCache;
+        initTableResize(output);
       }
 
       output.classList.remove('flash');
@@ -437,6 +495,7 @@ export function createOutputPanel() {
         } else if (currentFormat === 'csv') {
           if (lastResultData) {
             output.innerHTML = jsonToHTML(lastResultData, Array.isArray(lastResultData));
+            initTableResize(output);
           }
         }
 

@@ -445,8 +445,9 @@ const JQ_WORKER_CODE = `
     }
     var keys = Object.keys(keySet).sort();
 
-    var html = warningMsg + '<table><thead><tr>';
-    for (var hi = 0; hi < keys.length; hi++) html += '<th>' + csvEscapeHtml(keys[hi]) + '</th>';
+    var html = warningMsg + '<div class="csv-table-wrap"><table><thead><tr>';
+    for (var hi = 0; hi < keys.length; hi++) html += '<th><span class="col-label">' + csvEscapeHtml(keys[hi]) + '</span><div class="col-resize-handle"></div></th>';
+    html += '<th class="col-spacer"></th>';
     html += '</tr></thead><tbody>';
     for (var bi = 0; bi < rows.length; bi++) {
       html += '<tr>';
@@ -454,9 +455,10 @@ const JQ_WORKER_CODE = `
         var val = rows[bi][keys[ci]] !== undefined ? rows[bi][keys[ci]] : '';
         html += '<td>' + csvEscapeHtml(String(val)) + '</td>';
       }
+      html += '<td class="col-spacer"></td>';
       html += '</tr>';
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     return html;
   }
 
