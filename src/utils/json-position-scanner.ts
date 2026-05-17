@@ -82,8 +82,12 @@ export function scanJson(text: string, maxEntries = 5000): JsonEntry[] {
       const result = parseString();
       if (result) addEntry(path, key, keyStart, keyEnd, result.start, result.end, `"${result.value}"`);
     } else if (ch === '{') {
+      const objStart = pos;
+      if (key !== null) addEntry(path, key, keyStart, keyEnd, objStart, objStart + 1, '{…}');
       parseObject(path);
     } else if (ch === '[') {
+      const arrStart = pos;
+      if (key !== null) addEntry(path, key, keyStart, keyEnd, arrStart, arrStart + 1, '[…]');
       parseArray(path);
     } else {
       const result = parseLiteral();

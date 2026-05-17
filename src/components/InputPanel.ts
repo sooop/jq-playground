@@ -85,7 +85,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
       <input type="text" id="inputFindSearch" placeholder="Search keys & values..." autocomplete="off">
       <label class="find-filter"><input type="checkbox" id="findKeysToggle" checked> Keys</label>
       <label class="find-filter"><input type="checkbox" id="findValuesToggle" checked> Values</label>
-      <label class="find-filter find-filter-regex"><input type="checkbox" id="findRegexToggle"> <span title="Use regular expression">.*</span></label>
+      <label class="find-filter find-filter-regex"><input type="checkbox" id="findRegexToggle" checked> <span title="Use regular expression">.*</span></label>
       <span class="search-info" id="findMatchInfo"></span>
       <button id="findCloseBtn" title="Close (Escape)">×</button>
     </div>
@@ -105,6 +105,11 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   const findValuesToggle = findDropdown.querySelector<HTMLInputElement>('#findValuesToggle')!;
   const findRegexToggle = findDropdown.querySelector<HTMLInputElement>('#findRegexToggle')!;
   const findCloseBtn = findDropdown.querySelector<HTMLButtonElement>('#findCloseBtn')!;
+
+  // Restore regex toggle state from localStorage (default: true)
+  const savedRegex = localStorage.getItem('jq-find-regex');
+  findRegexToggle.checked = savedRegex !== null ? savedRegex === 'true' : true;
+  findSearchInput.placeholder = findRegexToggle.checked ? 'Regex pattern...' : 'Search keys & values...';
 
   // Sort state (default: timestamp)
   let currentSortBy = localStorage.getItem('jq-input-sort') || 'timestamp';
@@ -428,6 +433,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   const openFindDropdown = (): void => {
     if (findDropdown.style.display !== 'none') {
       findSearchInput.focus();
+      findSearchInput.select();
       return;
     }
     findDropdown.style.display = 'flex';
@@ -435,6 +441,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
     findEntriesCache = null;
     performFindSearch();
     findSearchInput.focus();
+    findSearchInput.select();
   };
 
   const closeFindDropdown = (): void => {
@@ -688,6 +695,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   findValuesToggle.addEventListener('change', performFindSearch);
   findRegexToggle.addEventListener('change', () => {
     findSearchInput.placeholder = findRegexToggle.checked ? 'Regex pattern...' : 'Search keys & values...';
+    localStorage.setItem('jq-find-regex', String(findRegexToggle.checked));
     performFindSearch();
   });
 
