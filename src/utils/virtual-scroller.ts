@@ -133,7 +133,9 @@ export class VirtualScroller {
     };
     this.container.addEventListener('keydown', this._onKeyDown);
 
-    // Initial render
+    // Force re-render (reset cached range so _render() doesn't skip on unchanged scrollTop)
+    this._startLine = -1;
+    this._endLine = -1;
     this._render();
   }
 
