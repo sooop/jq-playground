@@ -8,6 +8,7 @@ export function createHeader(
   onShowHelp: () => void,
   onToggleSnippets: () => void,
   onOpenCommandPalette?: () => void,
+  onOpenTransform?: () => void,
 ) {
   const header = document.createElement('header');
   header.className = 'header';
@@ -59,6 +60,7 @@ export function createHeader(
     onShowHelp,
     onOpenManual: () => window.open('https://jqlang.github.io/jq/manual/', '_blank'),
     onOpenCommandPalette: onOpenCommandPalette ?? (() => {}),
+    onOpenTransform,
   });
 
   // 테마 버튼을 toolbar 우측 actions에 삽입

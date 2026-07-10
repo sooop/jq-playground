@@ -97,6 +97,10 @@ export function createHelpModal() {
             <span class="shortcut-desc">Format JSON</span>
           </div>
           <div class="shortcut-item">
+            <span class="shortcut-key">Ctrl+Shift+T</span>
+            <span class="shortcut-desc">JSON Transform (extract / unstringify)</span>
+          </div>
+          <div class="shortcut-item">
             <span class="shortcut-key">Tab</span>
             <span class="shortcut-desc">Indent (4 spaces)</span>
           </div>

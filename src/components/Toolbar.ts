@@ -10,6 +10,7 @@ export interface ToolbarCallbacks {
   onShowHelp: () => void;
   onOpenManual: () => void;
   onOpenCommandPalette: () => void;
+  onOpenTransform?: () => void;
 }
 
 export function createToolbar(callbacks: ToolbarCallbacks): HTMLElement {
@@ -40,6 +41,13 @@ export function createToolbar(callbacks: ToolbarCallbacks): HTMLElement {
         { id: 'toggle-snippets',   label: 'Snippets',   icon: SidebarIcon, shortcut: '' },
         { id: 'toggle-cheatsheet', label: 'Cheatsheet', icon: CodeIcon,    shortcut: '' },
         { id: 'theme-submenu',     label: 'Theme',      icon: PaletteIcon, shortcut: '' },
+      ]
+    },
+    {
+      id: 'tools-menu',
+      label: 'Tools',
+      items: [
+        { id: 'json-transform', label: 'JSON Transform…', icon: CodeIcon, shortcut: 'Ctrl+Shift+T' },
       ]
     },
     {
@@ -199,6 +207,7 @@ export function createToolbar(callbacks: ToolbarCallbacks): HTMLElement {
       case 'import-file':       triggerFileImport();               break;
       case 'toggle-snippets':   callbacks.onToggleSnippets();      break;
       case 'toggle-cheatsheet': callbacks.onToggleCheatsheet();    break;
+      case 'json-transform':    callbacks.onOpenTransform?.();     break;
       case 'show-help':
       case 'show-shortcuts':    callbacks.onShowHelp();            break;
       case 'open-manual':       callbacks.onOpenManual();          break;

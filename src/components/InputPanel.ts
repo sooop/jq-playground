@@ -3,10 +3,11 @@ import { handleTabKey } from '../utils/keyboard';
 import { Storage } from '../utils/storage';
 import { csvToJson, detectDelimiter } from '../core/csv-parser';
 import { extractJson, needsJsonExtraction, tryFormatJson } from '../utils/json-extractor';
+import { preprocessJson, formatCandidate } from '../utils/json-preprocessor';
 import { scanJson, filterEntries, type JsonEntry } from '../utils/json-position-scanner';
 import type { ComponentElement, InputPanelApi } from '../types';
 
-export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() => void) | null) {
+export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() => void) | null, onOpenTransform?: () => void) {
   const panel = document.createElement('div');
   panel.className = 'panel input-panel';
   panel.setAttribute('role', 'region');
@@ -20,6 +21,8 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
       <div class="panel-actions">
         <button id="parseCsvBtn" style="display: none;">Parse as CSV</button>
         <button id="formatJsonBtn" title="Format JSON (Ctrl+Shift+F)">Format</button>
+        <button id="transformJsonBtn" title="JSON Transform (Ctrl+Shift+T)">Transform</button>
+        <button id="undoTransformBtn" style="display: none;" title="Transform 적용 되돌리기">Undo</button>
         <button id="clearInputBtn">Clear</button>
         <button id="loadFileBtn">Load File</button>
         <button id="findJsonBtn" title="Find in JSON (Ctrl+F)">Find</button>
@@ -39,6 +42,9 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
   const dragOverlay = panel.querySelector<HTMLElement>('#dragOverlay')!;
   const formatLabel = panel.querySelector<HTMLElement>('#inputFormat')!;
   const parseCsvBtn = panel.querySelector<HTMLButtonElement>('#parseCsvBtn')!;
+  const undoTransformBtn = panel.querySelector<HTMLButtonElement>('#undoTransformBtn')!;
+
+  let transformUndoFn: (() => void) | null = null;
 
   // Track current file name
   let currentFileName: string | null = null;
@@ -603,7 +609,26 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
       } else if (needsJsonExtraction(text)) {
         parseCsvBtn.style.display = 'none';
 
-        // 크기가 작으면 자동 실행, 크면 확인
+        const { candidates } = preprocessJson(text, { extract: true, unstringify: false });
+
+        if (candidates.length > 1) {
+          onOpenTransform?.();
+          onInputChange();
+          return;
+        }
+
+        if (candidates.length === 1) {
+          const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
+            confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
+
+          if (shouldExtract) {
+            textarea.value = formatCandidate(candidates[0]);
+            onInputChange();
+          }
+          return;
+        }
+
+        // 후보 0개 — 기존 추출기 폴백
         const shouldExtract = size <= AUTO_EXTRACT_SIZE ||
           confirm('유효하지 않은 JSON이 감지되었습니다. JSON 객체를 추출하시겠습니까?');
 
@@ -703,6 +728,19 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
     autoFormatEnabled = true; // 수동 포맷 클릭 시 자동 포맷 복구
     updateAutoFormatIndicator();
     await formatJson();
+  });
+
+  panel.querySelector<HTMLButtonElement>('#transformJsonBtn')!.addEventListener('click', () => {
+    onOpenTransform?.();
+  });
+
+  undoTransformBtn.addEventListener('click', () => {
+    if (transformUndoFn) {
+      transformUndoFn();
+      transformUndoFn = null;
+      undoTransformBtn.style.display = 'none';
+      onInputChange();
+    }
   });
 
   panel.querySelector<HTMLButtonElement>('#clearInputBtn')!.addEventListener('click', () => {
@@ -928,7 +966,11 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
     setAutoPlayIndicator: (enabled: boolean) => {
       const chip = panel.querySelector<HTMLElement>('#autoPlayChip')!;
       chip.style.display = enabled ? 'inline-block' : 'none';
-    }
+    },
+    setTransformUndo: (undo: (() => void) | null) => {
+      transformUndoFn = undo;
+      undoTransformBtn.style.display = undo ? 'inline-block' : 'none';
+    },
   };
 
   return el;

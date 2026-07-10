@@ -133,6 +133,7 @@ export interface InputPanelApi {
   getCurrentFileName(): string | null;
   restoreInput(content: string, fileName: string | null): void;
   setAutoPlayIndicator(enabled: boolean): void;
+  setTransformUndo(undo: (() => void) | null): void;
 }
 
 export interface QueryPanelApi {
@@ -157,5 +158,17 @@ export interface SaveQueryModalApi {
 
 export interface HelpModalApi {
   show(): void;
+  hide(): void;
+}
+
+export interface TransformModalOpenOptions {
+  source?: 'input' | 'empty';
+  initialText?: string;
+  extract?: boolean;
+  unstringify?: boolean;
+}
+
+export interface TransformModalApi {
+  show(opts?: TransformModalOpenOptions): Promise<void>;
   hide(): void;
 }

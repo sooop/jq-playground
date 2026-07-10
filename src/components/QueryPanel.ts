@@ -1186,6 +1186,12 @@ export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (qu
       let contextKeys = [];
       let inputKeys = [];
 
+      const inputHashChanged = lastInputHash !== inputHash;
+      if (inputHashChanged) {
+        lastInputHash = inputHash;
+        autocompleteCache.invalidate();
+      }
+
       // 1. Check for cached input keys - show immediately
       const cachedInput = autocompleteCache.getInputKeys(inputHash);
       if (cachedInput) {
@@ -1195,14 +1201,21 @@ export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (qu
         if (inputKeys.length > 0) {
           renderFieldAutocomplete(inputKeys, [], searchTerm, hasPrefix, prefix);
         }
+      } else if (inputData.length <= 500 * 1024) {
+        // 캐시 없을 때 소용량 입력은 동기 추출로 즉시 표시 (Worker 대기 전)
+        try {
+          inputKeys = getInputKeys();
+          if (inputKeys.length > 0) {
+            autocompleteCache.setInputKeys(inputKeys, inputHash, false);
+            renderFieldAutocomplete(inputKeys, [], searchTerm, hasPrefix, prefix);
+          }
+        } catch {
+          // invalid JSON — context/Worker 경로로 폴백
+        }
       }
 
-      // 2. If input hash changed, invalidate cache and request new extraction
-      if (lastInputHash !== inputHash) {
-        lastInputHash = inputHash;
-        autocompleteCache.invalidate();
-
-        // Debounce Worker requests
+      // 2. If input hash changed, request Worker extraction
+      if (inputHashChanged) {
         if (updateDebounceTimer) {
           clearTimeout(updateDebounceTimer);
         }
@@ -1246,6 +1259,15 @@ export function createQueryPanel(onQueryChange: () => void, onShowSaveModal: (qu
 
       if (!contextQuery && analysis.isInsideFunction && analysis.isInsideObjectConstruction) {
         contextQuery = getFallbackContextQuery(analysis, inputData);
+      }
+
+      // 단일 세그먼트 ".field" (예: ".", ".users")는 completedQuery가 비어 있어
+      // 컨텍스트 실행이 스킵되던 문제 수정 — ". | .field"와 동일하게 동작
+      if (!contextQuery && isFieldAccess) {
+        const fieldCtx = getFieldAccessContext();
+        contextQuery = fieldCtx.hasPrefix && fieldCtx.prefix
+          ? '.' + fieldCtx.prefix
+          : '.';
       }
 
       if (contextQuery) {

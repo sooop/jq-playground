@@ -1,9 +1,10 @@
-import type { ComponentElement, InputPanelApi, QueryPanelApi, OutputPanelElement, SaveQueryModalApi, HelpModalApi, PanelToggleApi, FormatResult, ExecuteResult } from './types';
+import type { ComponentElement, InputPanelApi, QueryPanelApi, OutputPanelElement, SaveQueryModalApi, HelpModalApi, TransformModalApi, PanelToggleApi, FormatResult, ExecuteResult } from './types';
 import { createHeader } from './components/Header';
 import { createInputPanel } from './components/InputPanel';
 import { createQueryPanel } from './components/QueryPanel';
 import { createOutputPanel } from './components/OutputPanel';
 import { createSaveQueryModal, createHelpModal } from './components/Modal';
+import { createTransformModal } from './components/TransformModal';
 import { createCheatsheet } from './components/Cheatsheet';
 import { createSnippets } from './components/Snippets';
 import { jqEngine } from './core/jq-engine';
@@ -26,6 +27,7 @@ export class App {
   private outputPanel: OutputPanelElement | null = null;
   private modal: ComponentElement<SaveQueryModalApi> | null = null;
   private helpModal: ComponentElement<HelpModalApi> | null = null;
+  private transformModal: ComponentElement<TransformModalApi> | null = null;
   private cheatsheet: ComponentElement<PanelToggleApi> | null = null;
   private snippets: ComponentElement<PanelToggleApi> | null = null;
   private executionGeneration = 0;
@@ -53,17 +55,24 @@ export class App {
     await Storage.init();
 
     // Create components
+    this.transformModal = createTransformModal((undo) => {
+      this.inputPanel.api.setTransformUndo(undo);
+      this.executeQuery();
+    }) as unknown as ComponentElement<TransformModalApi>;
+
     const header = createHeader(
       () => this.loadSample(),
       () => this.cheatsheet.api.toggle(),
       () => this.helpModal.api.show(),
       () => this.snippets.api.toggle(),
       () => this.openCommandPalette(),
+      () => this.openTransformModal(),
     );
 
     this.inputPanel = createInputPanel(
       () => this.executeQuery(),
-      () => this.executeQuery(true)
+      () => this.executeQuery(true),
+      () => this.openTransformModal(),
     ) as unknown as ComponentElement<InputPanelApi>;
     this.queryPanel = createQueryPanel(
       () => this.executeQuery(),
@@ -141,6 +150,7 @@ export class App {
     app.appendChild(container);
     app.appendChild(this.modal);
     app.appendChild(this.helpModal);
+    app.appendChild(this.transformModal);
     app.appendChild(this.snippets);
     app.appendChild(this.cheatsheet);
     app.appendChild(this.commandPalette.element);
@@ -226,6 +236,14 @@ export class App {
     });
 
     registerKeymap({
+      id: 'json-transform',
+      keys: 'Ctrl+Shift+T',
+      label: 'JSON Transform',
+      description: '로그에서 JSON 추출 / unstringify',
+      handler: () => this.openTransformModal(),
+    });
+
+    registerKeymap({
       id: 'show-shortcuts',
       keys: '?',
       label: '단축키 목록',
@@ -266,6 +284,11 @@ export class App {
   /** 커맨드 팔레트 열기 */
   openCommandPalette() {
     this.commandPalette?.api.open();
+  }
+
+  /** JSON Transform 모달 열기 */
+  openTransformModal() {
+    void this.transformModal?.api.show({ source: 'input', extract: true });
   }
 
   /** 패널 accent를 전역 --accent-current에 반영 */
