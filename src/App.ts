@@ -32,6 +32,10 @@ export class App {
   private snippets: ComponentElement<PanelToggleApi> | null = null;
   private executionGeneration = 0;
   private commandPalette: { element: HTMLElement; api: CommandPaletteApi } | null = null;
+  private container: HTMLElement | null = null;
+  private main: HTMLElement | null = null;
+  private outputMaximized = false;
+  private savedMainRows = '';
 
   constructor() {
   }
@@ -141,6 +145,8 @@ export class App {
     // Initialize resizers
     this.initResizers(topPanel, main, hResizer, vResizer);
     this.restorePanelSizes(topPanel, main);
+    this.container = container;
+    this.main = main;
 
     container.appendChild(header);
     container.appendChild(main);
@@ -167,7 +173,7 @@ export class App {
         if (result.format === 'json') {
           this.outputPanel.api.showFormattedResult(result.resultText, 'json');
         } else if (result.format === 'csv') {
-          this.outputPanel.api.showFormattedResult(result.html, 'csv', result.csv);
+          this.outputPanel.api.showGridResult({ header: result.header, rows: result.rows });
         }
       } catch {
         // Worker 실패 시 폴백: 저장된 결과로 직접 변환 시도 후 재실행
@@ -183,6 +189,11 @@ export class App {
         }
         this.executeQuery(true);
       }
+    });
+
+    // ── 출력 패널 최대화 버튼 ──
+    this.outputPanel.querySelector<HTMLButtonElement>('#maximizeBtn')!.addEventListener('click', () => {
+      this.toggleMaximize();
     });
 
     // ── 글로벌 단축키 등록 ──
@@ -251,6 +262,21 @@ export class App {
       handler: () => this.helpModal.api.show(),
     });
 
+    registerKeymap({
+      id: 'toggle-output-maximize',
+      keys: 'Ctrl+Shift+M',
+      label: '출력 패널 최대화 토글',
+      handler: () => this.toggleMaximize(),
+    });
+
+    registerKeymap({
+      id: 'exit-output-maximize',
+      keys: 'Escape',
+      label: '출력 패널 최대화 해제',
+      when: () => !!this.outputMaximized && !document.querySelector('.modal-overlay.show'),
+      handler: () => this.toggleMaximize(),
+    });
+
     // 단일 글로벌 keydown 디스패처 초기화
     initKeymap();
 
@@ -289,6 +315,30 @@ export class App {
   /** JSON Transform 모달 열기 */
   openTransformModal() {
     void this.transformModal?.api.show({ source: 'input', extract: true });
+  }
+
+  /** 출력 패널 최대화 토글. input/query 패널을 0 높이로 접어 출력 패널이 전체 높이를 차지하게 한다. */
+  toggleMaximize() {
+    if (!this.main || !this.container) return;
+    this.outputMaximized = !this.outputMaximized;
+
+    if (this.outputMaximized) {
+      this.savedMainRows = this.main.style.gridTemplateRows;
+      this.main.style.gridTemplateRows = '0px 0px 1fr';
+    } else {
+      this.main.style.gridTemplateRows = this.savedMainRows;
+    }
+    this.container.classList.toggle('output-maximized', this.outputMaximized);
+
+    const btn = this.outputPanel?.querySelector<HTMLButtonElement>('#maximizeBtn');
+    if (btn) {
+      btn.textContent = this.outputMaximized ? '⤡' : '⤢';
+      btn.title = this.outputMaximized
+        ? '출력 패널 복원 (Ctrl+Shift+M / Esc)'
+        : '출력 패널 최대화 (Ctrl+Shift+M)';
+    }
+
+    this.outputPanel?.api.relayoutGrid();
   }
 
   /** 패널 accent를 전역 --accent-current에 반영 */
@@ -425,7 +475,7 @@ export class App {
           try {
             const csvResult = await jqEngine.formatResult('csv') as FormatResult;
             if (thisGeneration !== this.executionGeneration) return;
-            this.outputPanel.api.showFormattedResult(csvResult.html, 'csv', csvResult.csv, executionTime);
+            this.outputPanel.api.showGridResult({ header: csvResult.header, rows: csvResult.rows }, executionTime);
           } catch {
             // Worker formatResult 실패 시 메인스레드에서 CSV 직접 생성
             if (thisGeneration !== this.executionGeneration) return;

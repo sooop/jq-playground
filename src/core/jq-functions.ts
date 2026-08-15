@@ -413,79 +413,31 @@ const JQ_WORKER_CODE = `
     return flattened;
   }
 
-  function csvEscapeHtml(text) {
-    return text.replace(/[&<>"']/g, function(m) {
-      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#039;"}[m];
-    });
-  }
-
-  function workerJsonToHTML(data) {
+  function workerJsonToMatrix(data) {
     var wasArray = Array.isArray(data);
     if (!wasArray) data = [data];
-    if (data.length === 0) return '<div>No data</div>';
+    if (data.length === 0) return { header: [], rows: [] };
 
-    var MAX_TABLE_ROWS = 1000;
-    var warningMsg = '';
-    var totalRows = data.length;
-    var displayData = data;
-    if (totalRows > MAX_TABLE_ROWS) {
-      warningMsg = '<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">' +
-        '⚠️ 데이터가 너무 많습니다. 테이블에 첫 ' + MAX_TABLE_ROWS + '행만 표시됩니다. (총 ' + totalRows + '행)' +
-        '<br/>전체 데이터는 <strong>Download</strong> 버튼으로 CSV 파일로 다운로드하세요.</div>';
-      displayData = data.slice(0, MAX_TABLE_ROWS);
-    }
-    var rows = [];
-    for (var i = 0; i < displayData.length; i++) rows.push(csvFlatten(displayData[i], '', 0));
-    if (rows.length === 0) return '<div>No data</div>';
+    var flatRows = [];
+    for (var i = 0; i < data.length; i++) flatRows.push(csvFlatten(data[i], '', 0));
 
     var keySet = {};
-    for (var ri = 0; ri < rows.length; ri++) {
-      var rk = Object.keys(rows[ri]);
+    for (var ri = 0; ri < flatRows.length; ri++) {
+      var rk = Object.keys(flatRows[ri]);
       for (var ki = 0; ki < rk.length; ki++) keySet[rk[ki]] = true;
     }
-    var keys = Object.keys(keySet).sort();
+    var header = Object.keys(keySet).sort();
 
-    var html = warningMsg + '<div class="csv-table-wrap"><table><thead><tr>';
-    for (var hi = 0; hi < keys.length; hi++) html += '<th><span class="col-label">' + csvEscapeHtml(keys[hi]) + '</span><div class="col-resize-handle"></div></th>';
-    html += '<th class="col-spacer"></th>';
-    html += '</tr></thead><tbody>';
-    for (var bi = 0; bi < rows.length; bi++) {
-      html += '<tr>';
-      for (var ci = 0; ci < keys.length; ci++) {
-        var val = rows[bi][keys[ci]] !== undefined ? rows[bi][keys[ci]] : '';
-        html += '<td>' + csvEscapeHtml(String(val)) + '</td>';
-      }
-      html += '<td class="col-spacer"></td>';
-      html += '</tr>';
-    }
-    html += '</tbody></table></div>';
-    return html;
-  }
-
-  function workerJsonToCSV(data) {
-    if (!Array.isArray(data)) data = [data];
-    if (data.length === 0) return '';
     var rows = [];
-    for (var i = 0; i < data.length; i++) rows.push(csvFlatten(data[i], '', 0));
-    var keySet = {};
-    for (var ri = 0; ri < rows.length; ri++) {
-      var rk = Object.keys(rows[ri]);
-      for (var ki = 0; ki < rk.length; ki++) keySet[rk[ki]] = true;
-    }
-    var keys = Object.keys(keySet).sort();
-    var csv = keys.map(function(k) { return '"' + k.replace(/"/g, '""') + '"'; }).join(',') + '\\n';
-    for (var bi = 0; bi < rows.length; bi++) {
-      var cells = [];
-      for (var ci = 0; ci < keys.length; ci++) {
-        var value = rows[bi][keys[ci]] !== undefined ? String(rows[bi][keys[ci]]) : '';
-        if (value.indexOf(',') !== -1 || value.indexOf('"') !== -1 || value.indexOf('\\n') !== -1) {
-          value = '"' + value.replace(/"/g, '""') + '"';
-        }
-        cells.push(value);
+    for (var bi = 0; bi < flatRows.length; bi++) {
+      var line = [];
+      for (var ci = 0; ci < header.length; ci++) {
+        var val = flatRows[bi][header[ci]];
+        line.push(val !== undefined ? String(val) : '');
       }
-      csv += cells.join(',') + '\\n';
+      rows.push(line);
     }
-    return csv;
+    return { header: header, rows: rows };
   }
 
   // 워커 시작 시 즉시 초기화 (첫 쿼리 지연 방지)
@@ -530,9 +482,8 @@ const JQ_WORKER_CODE = `
           var jsonText = JSON.stringify(cachedResult, null, 2);
           self.postMessage({ type: 'formatted', id: msg.id, format: 'json', resultText: jsonText });
         } else if (msg.format === 'csv') {
-          var html = workerJsonToHTML(cachedResult);
-          var csv = workerJsonToCSV(cachedResult);
-          self.postMessage({ type: 'formatted', id: msg.id, format: 'csv', html: html, csv: csv });
+          var matrix = workerJsonToMatrix(cachedResult);
+          self.postMessage({ type: 'formatted', id: msg.id, format: 'csv', header: matrix.header, rows: matrix.rows });
         }
       } catch(err) {
         self.postMessage({ type: 'formatted', id: msg.id, error: err.message });

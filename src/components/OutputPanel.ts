@@ -1,7 +1,9 @@
-import { jsonToHTML, jsonToCSV } from '../core/csv-converter';
+import { jsonToMatrix } from '../core/csv-converter';
 import { downloadText } from '../core/file-handler';
 import { VirtualScroller } from '../utils/virtual-scroller';
-import type { OutputPanelElement, FormatResult } from '../types';
+import { createDataGrid } from './DataGrid';
+import type { Matrix } from '../core/grid/view';
+import type { OutputPanelElement } from '../types';
 
 export function createOutputPanel() {
   const panel = document.createElement('div');
@@ -17,6 +19,8 @@ export function createOutputPanel() {
           <option value="json">JSON</option>
           <option value="csv">CSV</option>
         </select>
+        <button id="columnsBtn" title="열 관리" style="display:none">열</button>
+        <button id="maximizeBtn" title="출력 패널 최대화 (Ctrl+Shift+M)">⤢</button>
         <button id="copyBtn">Copy</button>
         <button id="downloadBtn">Download</button>
       </div>
@@ -32,14 +36,17 @@ export function createOutputPanel() {
     <div class="error-banner" id="errorBanner"></div>
     <div class="panel-content">
       <div class="output-content" id="output"></div>
+      <div class="grid-content" id="gridOutput"></div>
     </div>
     <div class="error-toast" id="errorToast"></div>
   `;
 
   const output = panel.querySelector<HTMLElement>('#output')!;
+  const gridOutput = panel.querySelector<HTMLElement>('#gridOutput')!;
   const errorBanner = panel.querySelector<HTMLElement>('#errorBanner')!;
   const autoPlayBtn = panel.querySelector<HTMLButtonElement>('#autoPlayBtn')!;
   const formatSelect = panel.querySelector<HTMLSelectElement>('#formatSelect')!;
+  const columnsBtn = panel.querySelector<HTMLButtonElement>('#columnsBtn')!;
   const copyBtn = panel.querySelector<HTMLButtonElement>('#copyBtn')!;
   const downloadBtn = panel.querySelector<HTMLButtonElement>('#downloadBtn')!;
   const lastRunTime = panel.querySelector<HTMLElement>('#lastRunTime')!;
@@ -51,9 +58,11 @@ export function createOutputPanel() {
   const searchNextBtn = panel.querySelector<HTMLButtonElement>('#searchNextBtn')!;
   const searchCloseBtn = panel.querySelector<HTMLButtonElement>('#searchCloseBtn')!;
 
+  const dataGrid = createDataGrid();
+  gridOutput.appendChild(dataGrid);
+
   let lastResultData: unknown = null;
   let lastResultText: string | null = null;  // Worker에서 받은 JSON.stringify 결과 (텍스트)
-  let lastCsvCache: string | null = null;
   let errorTimeout: ReturnType<typeof setTimeout> | null = null;
   let autoPlayEnabled = true;
   let searchMatches: Array<{ start: number; end: number; text: string }> = [];
@@ -65,6 +74,20 @@ export function createOutputPanel() {
   // Virtual scroller for large JSON output
   const virtualScroller = new VirtualScroller(output);
   let isVirtualScrollActive = false;
+
+  /** JSON/CSV 뷰 전환. csv일 때만 그리드와 열 관리 버튼을 노출한다. */
+  function setActiveView(format: string) {
+    if (format === 'csv') {
+      output.style.display = 'none';
+      gridOutput.style.display = 'block';
+      columnsBtn.style.display = '';
+      dataGrid.api.relayout();
+    } else {
+      output.style.display = '';
+      gridOutput.style.display = 'none';
+      columnsBtn.style.display = 'none';
+    }
+  }
 
   // Helper function to generate stats
   function generateStats(data: unknown, executionTime: number | undefined) {
@@ -95,60 +118,39 @@ export function createOutputPanel() {
     return stats.join('');
   }
 
-  // CSV table column resize
-  function initTableResize(container: HTMLElement) {
-    const table = container.querySelector<HTMLTableElement>('.csv-table-wrap table');
-    if (!table) return;
-    const headers = Array.from(table.querySelectorAll<HTMLElement>('thead th:not(.col-spacer)'));
-    if (!headers.length) return;
-
-    let colgroup: HTMLElement | null = null;
-    let isFixed = false;
-
-    function ensureFixed() {
-      if (isFixed) return;
-      isFixed = true;
-      const widths = headers.map(th => th.getBoundingClientRect().width);
-      colgroup = document.createElement('colgroup');
-      widths.forEach(w => {
-        const col = document.createElement('col');
-        col.style.width = Math.max(50, w) + 'px';
-        colgroup!.appendChild(col);
-      });
-      colgroup.appendChild(document.createElement('col')); // spacer col
-      table.insertBefore(colgroup, table.firstChild);
-      table.style.tableLayout = 'fixed';
+  function generateGridStats(executionTime: number | undefined) {
+    const stats: string[] = [];
+    if (executionTime !== undefined) {
+      const timeStr = executionTime < 1 ? '<1ms' : `${executionTime.toFixed(1)}ms`;
+      stats.push(`<span class="stat-item stat-time">${timeStr}</span>`);
     }
+    const s = dataGrid.api.getStats();
+    const rowsLabel = s.rows === s.totalRows ? `${s.rows.toLocaleString()} rows` : `${s.rows.toLocaleString()} / ${s.totalRows.toLocaleString()} rows`;
+    stats.push(`<span class="stat-item">${rowsLabel}</span>`);
+    stats.push(`<span class="stat-item">${s.cols.toLocaleString()} cols</span>`);
+    if (s.hidden > 0) stats.push(`<span class="stat-item">${s.hidden} hidden</span>`);
+    if (s.filtered > 0) stats.push(`<span class="stat-item">${s.filtered} filtered</span>`);
+    return stats.join('');
+  }
 
-    headers.forEach((th, i) => {
-      const handle = th.querySelector<HTMLElement>('.col-resize-handle');
-      if (!handle) return;
-      handle.addEventListener('mousedown', (e: MouseEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        ensureFixed();
-        const cols = Array.from(colgroup!.querySelectorAll<HTMLElement>('col'));
-        const col = cols[i];
-        if (!col) return;
-        const startX = e.clientX;
-        const startWidth = parseFloat(col.style.width) || th.offsetWidth;
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        handle.classList.add('resizing');
-        const onMouseMove = (ev: MouseEvent) => {
-          col.style.width = Math.max(40, startWidth + (ev.clientX - startX)) + 'px';
-        };
-        const onMouseUp = () => {
-          document.body.style.cursor = '';
-          document.body.style.userSelect = '';
-          handle.classList.remove('resizing');
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-        };
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      });
-    });
+  let lastGridExecutionTime: number | undefined;
+
+  function refreshGridStats() {
+    if (formatSelect.value !== 'csv') return;
+    statsBar.innerHTML = generateGridStats(lastGridExecutionTime);
+    statsBar.style.display = 'flex';
+  }
+  // 그리드 내부에서 정렬/숨김/필터가 바뀔 때마다 stats bar를 다시 그린다
+  dataGrid.api.setOnStatsChange(refreshGridStats);
+
+  function applyGridResult(matrix: Matrix, executionTime?: number) {
+    lastGridExecutionTime = executionTime;
+    dataGrid.api.setData(matrix);
+    setActiveView('csv');
+
+    const now = new Date();
+    lastRunTime.textContent = now.toLocaleTimeString();
+    refreshGridStats();
   }
 
   // Flash effect cleanup
@@ -177,6 +179,11 @@ export function createOutputPanel() {
     currentMatchIndex = -1;
     searchInfo.textContent = '';
 
+    if (formatSelect.value === 'csv') {
+      dataGrid.api.find('');
+      return;
+    }
+
     if (isVirtualScrollActive) {
       // 가상 스크롤러 검색 초기화 + 하이라이트 제거
       virtualScroller.search('');
@@ -191,25 +198,24 @@ export function createOutputPanel() {
 
   function performSearch() {
     const query = searchInput.value;
-    if (!query || (!lastResultData && !lastResultText)) {
-      clearSearch();
-      return;
-    }
 
-    if (formatSelect.value !== 'json') {
-      searchInfo.textContent = 'Search works in JSON view';
-      return;
-    }
-
-    // 가상 스크롤 모드: 스크롤러 내부 검색 사용
-    if (isVirtualScrollActive) {
-      const { total } = virtualScroller.search(query);
+    if (formatSelect.value === 'csv') {
+      if (!query) {
+        clearSearch();
+        return;
+      }
+      const { total, truncated } = dataGrid.api.find(query);
       if (total > 0) {
-        const info = virtualScroller.getMatchInfo();
-        searchInfo.textContent = `${info.current} of ${info.total}`;
+        const info = dataGrid.api.getMatchInfo();
+        searchInfo.textContent = `${info.current} of ${info.total}${truncated ? '+' : ''}`;
       } else {
         searchInfo.textContent = 'No matches';
       }
+      return;
+    }
+
+    if (!query || (!lastResultData && !lastResultText)) {
+      clearSearch();
       return;
     }
 
@@ -284,6 +290,12 @@ export function createOutputPanel() {
   }
 
   function goToNextMatch() {
+    if (formatSelect.value === 'csv') {
+      dataGrid.api.nextMatch();
+      const info = dataGrid.api.getMatchInfo();
+      searchInfo.textContent = info.total ? `${info.current} of ${info.total}` : 'No matches';
+      return;
+    }
     if (isVirtualScrollActive) {
       virtualScroller.nextMatch();
       const info = virtualScroller.getMatchInfo();
@@ -297,6 +309,12 @@ export function createOutputPanel() {
   }
 
   function goToPrevMatch() {
+    if (formatSelect.value === 'csv') {
+      dataGrid.api.prevMatch();
+      const info = dataGrid.api.getMatchInfo();
+      searchInfo.textContent = info.total ? `${info.current} of ${info.total}` : 'No matches';
+      return;
+    }
     if (isVirtualScrollActive) {
       virtualScroller.prevMatch();
       const info = virtualScroller.getMatchInfo();
@@ -346,6 +364,10 @@ export function createOutputPanel() {
   // Also allow Ctrl+F when focus is in the panel content area
   output.setAttribute('tabindex', '0');
 
+  columnsBtn.addEventListener('click', () => {
+    dataGrid.api.openColumnManager(columnsBtn);
+  });
+
   // Public methods
   const api = {
     showLoading: () => {
@@ -359,33 +381,31 @@ export function createOutputPanel() {
     showResult: (data: unknown, format: string, executionTime?: number) => {
       lastResultData = data;
       lastResultText = null;
-      lastCsvCache = null;
       originalOutputHTML = '';
       clearSearch();
 
       isInErrorState = false;
       output.classList.remove('stale-result-subtle');
+      gridOutput.classList.remove('stale-result-subtle');
 
       if (format === 'json') {
         const text = JSON.stringify(data, null, 2);
         lastResultText = text;
+        setActiveView('json');
         virtualScroller.setText(text);
         isVirtualScrollActive = virtualScroller.active;
+
+        output.classList.remove('flash');
+        void output.offsetWidth;
+        output.classList.add('flash');
+
+        const now = new Date();
+        lastRunTime.textContent = now.toLocaleTimeString();
+        statsBar.innerHTML = generateStats(data, executionTime);
+        statsBar.style.display = 'flex';
       } else if (format === 'csv') {
-        isVirtualScrollActive = false;
-        output.innerHTML = jsonToHTML(data, Array.isArray(data));
-        lastCsvCache = jsonToCSV(data);
-        initTableResize(output);
+        applyGridResult(jsonToMatrix(data), executionTime);
       }
-
-      output.classList.remove('flash');
-      void output.offsetWidth;
-      output.classList.add('flash');
-
-      const now = new Date();
-      lastRunTime.textContent = now.toLocaleTimeString();
-      statsBar.innerHTML = generateStats(data, executionTime);
-      statsBar.style.display = 'flex';
       api.hideError();
     },
 
@@ -395,12 +415,12 @@ export function createOutputPanel() {
     showResultText: (resultText: string, format: string, executionTime?: number) => {
       lastResultData = null;
       lastResultText = resultText;
-      lastCsvCache = null;
       originalOutputHTML = '';
       clearSearch();
 
       isInErrorState = false;
       output.classList.remove('stale-result-subtle');
+      setActiveView('json');
 
       // 가상 스크롤링: 줄 수에 따라 자동 활성화
       virtualScroller.setText(resultText);
@@ -429,25 +449,19 @@ export function createOutputPanel() {
     },
 
     /**
-     * Worker에서 포맷 변환된 결과 표시 (formatResult 응답)
+     * Worker에서 포맷 변환된 JSON 결과 표시 (formatResult 응답, format==='json' 전용)
      */
-    showFormattedResult: (content: string, format: string, csvCache?: string, executionTime?: number) => {
+    showFormattedResult: (content: string, format: string, executionTime?: number) => {
       originalOutputHTML = '';
       clearSearch();
 
       isInErrorState = false;
       output.classList.remove('stale-result-subtle');
 
-      if (format === 'json') {
-        lastResultText = content;
-        virtualScroller.setText(content);
-        isVirtualScrollActive = virtualScroller.active;
-      } else if (format === 'csv') {
-        isVirtualScrollActive = false;
-        output.innerHTML = content; // HTML table
-        if (csvCache) lastCsvCache = csvCache;
-        initTableResize(output);
-      }
+      lastResultText = content;
+      setActiveView('json');
+      virtualScroller.setText(content);
+      isVirtualScrollActive = virtualScroller.active;
 
       output.classList.remove('flash');
       void output.offsetWidth;
@@ -465,6 +479,20 @@ export function createOutputPanel() {
       api.hideError();
     },
 
+    /**
+     * Worker/메인스레드에서 만든 CSV 매트릭스를 DataGrid로 표시
+     */
+    showGridResult: (matrix: Matrix, executionTime?: number) => {
+      originalOutputHTML = '';
+      clearSearch();
+
+      isInErrorState = false;
+      output.classList.remove('stale-result-subtle');
+      gridOutput.classList.remove('stale-result-subtle');
+
+      applyGridResult(matrix, executionTime);
+    },
+
     showError: (message: string, autoHideDuration: number | false = 5000) => {
       const errorToast = panel.querySelector<HTMLElement>('#errorToast')!;
       errorToast.textContent = message;
@@ -479,35 +507,27 @@ export function createOutputPanel() {
         }, autoHideDuration);
       }
 
-      // 이전 결과가 있으면 다시 렌더링하여 유지
-      if (lastResultText !== null || lastResultData !== null) {
-        const currentFormat = formatSelect.value;
-
-        // 에러 상태에서는 가상 스크롤 비활성화하고 단순 텍스트로 표시
-        if (currentFormat === 'json') {
-          if (lastResultText) {
-            isVirtualScrollActive = false;
-            output.textContent = lastResultText;
-          } else if (lastResultData) {
-            isVirtualScrollActive = false;
-            output.textContent = JSON.stringify(lastResultData, null, 2);
-          }
-        } else if (currentFormat === 'csv') {
-          if (lastResultData) {
-            output.innerHTML = jsonToHTML(lastResultData, Array.isArray(lastResultData));
-            initTableResize(output);
-          }
+      // 이전 결과가 있으면 유지된 상태로 흐리게 표시
+      const currentFormat = formatSelect.value;
+      if (currentFormat === 'json' && (lastResultText !== null || lastResultData !== null)) {
+        if (lastResultText) {
+          isVirtualScrollActive = false;
+          output.textContent = lastResultText;
+        } else if (lastResultData) {
+          isVirtualScrollActive = false;
+          output.textContent = JSON.stringify(lastResultData, null, 2);
         }
-
         output.classList.add('stale-result-subtle');
-
-        // stats bar에 "이전 결과" 표시 추가 (중복 방지)
-        if (!statsBar.querySelector('.prev-result-label')) {
-          const prevLabel = '<span class="prev-result-label">이전 결과</span>';
-          statsBar.innerHTML = prevLabel + statsBar.innerHTML;
-        }
-      } else {
+      } else if (currentFormat === 'csv' && dataGrid.api.getStats().totalRows > 0) {
+        gridOutput.classList.add('stale-result-subtle');
+      } else if (currentFormat === 'json') {
         output.textContent = '';
+      }
+
+      // stats bar에 "이전 결과" 표시 추가 (중복 방지)
+      if (!statsBar.querySelector('.prev-result-label')) {
+        const prevLabel = '<span class="prev-result-label">이전 결과</span>';
+        statsBar.innerHTML = prevLabel + statsBar.innerHTML;
       }
     },
 
@@ -518,6 +538,7 @@ export function createOutputPanel() {
       errorBanner.classList.remove('show');
       isInErrorState = false;
       output.classList.remove('stale-result-subtle');
+      gridOutput.classList.remove('stale-result-subtle');
 
       // Remove prev-result-label from statsBar
       const prevLabel = statsBar.querySelector('.prev-result-label');
@@ -534,13 +555,14 @@ export function createOutputPanel() {
       output.textContent = '';
       lastResultData = null;
       lastResultText = null;
-      lastCsvCache = null;
       isVirtualScrollActive = false;
       virtualScroller.setLines([]);
+      dataGrid.api.clear();
       statsBar.innerHTML = '';
       statsBar.style.display = 'none';
       isInErrorState = false;
       output.classList.remove('stale-result-subtle');
+      gridOutput.classList.remove('stale-result-subtle');
       api.hideError();
     },
 
@@ -565,7 +587,11 @@ export function createOutputPanel() {
       }
 
       return autoPlayEnabled;
-    }
+    },
+
+    relayoutGrid: () => {
+      dataGrid.api.relayout();
+    },
   };
 
   // Event listeners
@@ -575,14 +601,20 @@ export function createOutputPanel() {
 
   copyBtn.addEventListener('click', () => {
     const format = formatSelect.value;
-    let text: string;
 
-    if (format === 'csv' && lastCsvCache) {
-      text = lastCsvCache;
-    } else if (format === 'csv' && lastResultData) {
-      lastCsvCache = jsonToCSV(lastResultData);
-      text = lastCsvCache;
-    } else if (isVirtualScrollActive) {
+    if (format === 'csv') {
+      dataGrid.api.copySelection().then(() => {
+        const originalText = copyBtn.textContent!;
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => {
+          copyBtn.textContent = originalText;
+        }, 1500);
+      });
+      return;
+    }
+
+    let text: string;
+    if (isVirtualScrollActive) {
       text = virtualScroller.getFullText();
     } else if (lastResultText) {
       text = lastResultText;
@@ -599,37 +631,14 @@ export function createOutputPanel() {
     });
   });
 
-  downloadBtn.addEventListener('click', async () => {
+  downloadBtn.addEventListener('click', () => {
     const format = formatSelect.value;
     let text: string | undefined;
 
     if (format === 'json') {
       text = lastResultText || output.textContent || undefined;
     } else if (format === 'csv') {
-      if (lastCsvCache) {
-        text = lastCsvCache;
-      } else if (lastResultData) {
-        lastCsvCache = jsonToCSV(lastResultData);
-        text = lastCsvCache;
-      } else {
-        // Worker에서 CSV 생성 시도
-        try {
-          downloadBtn.textContent = 'Generating...';
-          downloadBtn.disabled = true;
-          const { jqEngine } = await import('../core/jq-engine');
-          const result = await jqEngine.formatResult('csv') as FormatResult;
-          lastCsvCache = result.csv ?? null;
-          text = result.csv;
-        } catch {
-          api.showError('CSV 생성에 실패했습니다.');
-          downloadBtn.textContent = 'Download';
-          downloadBtn.disabled = false;
-          return;
-        } finally {
-          downloadBtn.textContent = 'Download';
-          downloadBtn.disabled = false;
-        }
-      }
+      text = dataGrid.api.getCSV('all') || undefined;
     }
 
     if (!text) {

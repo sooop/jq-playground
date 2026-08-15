@@ -1,4 +1,3 @@
-const MAX_TABLE_ROWS = 1000;
 const MAX_DEPTH = 10;
 
 function flatten(obj, prefix = '', depth = 0) {
@@ -25,105 +24,52 @@ function flatten(obj, prefix = '', depth = 0) {
   return flattened;
 }
 
-function escapeHtml(text) {
-  const map = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#039;'
-  };
-  return text.replace(/[&<>"']/g, m => map[m]);
+export interface Matrix {
+  header: string[];
+  rows: string[][];
 }
 
-export function jsonToHTML(data, isActualArray = true) {
+/**
+ * JSON 값을 표 형태의 header/rows 매트릭스로 변환한다.
+ * 배열이 아니면 단일 행으로 감싼다. 행 수 제한은 없다 — DataGrid의 가상 스크롤이 담당한다.
+ */
+export function jsonToMatrix(data: unknown): Matrix {
   const wasArray = Array.isArray(data);
+  const list = wasArray ? (data as unknown[]) : [data];
 
-  if (!wasArray) {
-    data = [data];
+  if (list.length === 0) {
+    return { header: [], rows: [] };
   }
 
-  if (data.length === 0) {
-    return '<div>No data</div>';
-  }
+  const flatRows = list.map(item => flatten(item));
+  const header = [...new Set(flatRows.flatMap(row => Object.keys(row)))].sort();
 
-  let warningMsg = '';
+  const rows = flatRows.map(row =>
+    header.map(key => (row[key] !== undefined ? String(row[key]) : ''))
+  );
 
-  // Slice first, then flatten (optimize for large datasets)
-  const totalRows = data.length;
-  let displayData = data;
-
-  if (totalRows > MAX_TABLE_ROWS) {
-    warningMsg = `<div style="background: #fff3f3; border: 1px solid #ddd; padding: 12px; margin-bottom: 12px; font-size: 12px; color: #d33; border-radius: 4px;">
-      ⚠️ 데이터가 너무 많습니다. 테이블에 첫 ${MAX_TABLE_ROWS}행만 표시됩니다. (총 ${totalRows}행)
-      <br/>전체 데이터는 <strong>Download</strong> 버튼으로 CSV 파일로 다운로드하세요.
-    </div>`;
-    displayData = data.slice(0, MAX_TABLE_ROWS);
-  }
-
-  // Only flatten the data we'll display (max 1000 rows)
-  const rows = [];
-  for (const item of displayData) {
-    const flattened = flatten(item);
-    rows.push(flattened);
-  }
-
-  if (rows.length === 0) {
-    return '<div>No data</div>';
-  }
-
-  const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
-
-  let html = warningMsg + '<div class="csv-table-wrap"><table><thead><tr>';
-  keys.forEach(key => {
-    html += `<th><span class="col-label">${escapeHtml(key)}</span><div class="col-resize-handle"></div></th>`;
-  });
-  html += '<th class="col-spacer"></th>';
-  html += '</tr></thead><tbody>';
-
-  rows.forEach(row => {
-    html += '<tr>';
-    keys.forEach(key => {
-      const value = row[key] !== undefined ? row[key] : '';
-      html += `<td>${escapeHtml(String(value))}</td>`;
-    });
-    html += '<td class="col-spacer"></td>';
-    html += '</tr>';
-  });
-
-  html += '</tbody></table></div>';
-  return html;
+  return { header, rows };
 }
 
-export function jsonToCSV(data) {
-  if (!Array.isArray(data)) {
-    data = [data];
+/** 필드 하나를 RFC-4180 규칙으로 인용한다. */
+function quoteField(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return '"' + value.replace(/"/g, '""') + '"';
   }
+  return value;
+}
 
-  if (data.length === 0) {
-    return '';
+export function matrixToCSV(header: string[], rows: string[][]): string {
+  if (header.length === 0) return '';
+  let csv = header.map(k => quoteField(k)).join(',') + '\n';
+  for (const row of rows) {
+    csv += row.map(v => quoteField(v)).join(',') + '\n';
   }
-
-  const rows = [];
-  for (const item of data) {
-    const flattened = flatten(item);
-    rows.push(flattened);
-  }
-
-  const keys = [...new Set(rows.flatMap(row => Object.keys(row)))].sort();
-
-  let csv = keys.map(k => `"${k.replace(/"/g, '""')}"`).join(',') + '\n';
-
-  rows.forEach(row => {
-    const cells = keys.map(key => {
-      let value = row[key] !== undefined ? String(row[key]) : '';
-      if (value.includes(',') || value.includes('"') || value.includes('\n')) {
-        value = '"' + value.replace(/"/g, '""') + '"';
-      }
-      return value;
-    });
-    csv += cells.join(',') + '\n';
-  });
-
   return csv;
+}
+
+/** 폴백 경로 호환용 (Worker 없이 직접 JSON → CSV 텍스트 변환) */
+export function jsonToCSV(data: unknown): string {
+  const { header, rows } = jsonToMatrix(data);
+  return matrixToCSV(header, rows);
 }

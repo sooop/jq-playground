@@ -22,10 +22,10 @@ export interface FormatResult {
   format: 'json' | 'csv';
   /** Re-stringified JSON (format === 'json') */
   resultText?: string;
-  /** HTML table string (format === 'csv') */
-  html?: string;
-  /** Raw CSV string (format === 'csv') */
-  csv?: string;
+  /** Column headers (format === 'csv') */
+  header?: string[];
+  /** Row values, aligned to `header` (format === 'csv') */
+  rows?: string[][];
 }
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
@@ -114,7 +114,9 @@ export interface OutputPanelApi {
   showLoading(): void;
   showResult(data: unknown, format: string, executionTime?: number): void;
   showResultText(resultText: string, format: string, executionTime?: number): void;
-  showFormattedResult(content: string, format: string, csvCache?: string, executionTime?: number): void;
+  /** format==='json' 전용. CSV는 showGridResult를 쓴다. */
+  showFormattedResult(content: string, format: string, executionTime?: number): void;
+  showGridResult(matrix: { header: string[]; rows: string[][] }, executionTime?: number): void;
   showError(message: string, autoHideDuration?: number | false): void;
   hideError(): void;
   getFormat(): string;
@@ -122,6 +124,7 @@ export interface OutputPanelApi {
   clear(): void;
   isAutoPlayEnabled(): boolean;
   toggleAutoPlay(): void;
+  relayoutGrid(): void;
 }
 
 /** OutputPanel element with optional external callback. */
