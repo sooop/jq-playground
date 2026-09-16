@@ -4,16 +4,27 @@ import {
   checkSizeGuard,
   needsSizeConfirm,
   needsSizeWarning,
-  suggestDefaultOptions,
 } from '../utils/json-preprocess-client';
 import type { JsonCandidateMeta } from '../utils/json-preprocessor';
+import {
+  allKeys,
+  pruneOrphans,
+  withAncestors,
+  type StringifiedNode,
+} from '../utils/stringified-fields';
 import type { ComponentElement, TransformModalApi } from '../types';
 
 const PREVIEW_FULL_MAX = 200 * 1024;
 const PREVIEW_TRUNCATE_AT = 2 * 1024 * 1024;
 const PREVIEW_SHOW_BYTES = 50 * 1024;
 const DEBOUNCE_MS = 300;
+const PREVIEW_DEBOUNCE_MS = 120;
 const LOADING_HINT_MS = 500;
+
+// 필드 목록 가상 스크롤
+const ROW_HEIGHT = 24;
+const ROW_OVERSCAN = 8;
+const FIELD_INDENT = 14;
 
 export function createTransformModal(onApply?: (undo: (() => void) | null) => void) {
   const overlay = document.createElement('div');
@@ -32,12 +43,27 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
         </div>
         <div class="transform-toggles">
           <label class="transform-toggle"><input type="checkbox" id="extractToggle" checked> Extract JSON</label>
-          <label class="transform-toggle"><input type="checkbox" id="unstringifyToggle"> Unstringify</label>
+          <label class="transform-toggle" id="preserveFormatLabel" title="선택한 필드의 구간만 교체하고 나머지 공백·줄바꿈은 그대로 둡니다"><input type="checkbox" id="preserveFormatToggle"> 원본 포맷 유지</label>
         </div>
         <div class="transform-status" id="transformStatus"></div>
-        <div class="transform-candidates-section">
+        <div class="transform-candidates-section" id="candidatesSection">
           <div class="transform-section-label">Candidates <span id="candidateCount"></span></div>
           <div class="transform-candidate-list" id="candidateList"></div>
+        </div>
+        <div class="transform-fields-section" id="fieldsSection">
+          <div class="transform-section-label">
+            Stringified values <span id="fieldCount"></span>
+            <span class="transform-field-actions">
+              <button type="button" id="fieldSelectAllBtn">전체선택</button>
+              <button type="button" id="fieldClearAllBtn">전체해제</button>
+            </span>
+          </div>
+          <div class="transform-field-list" id="fieldList">
+            <div class="transform-field-spacer" id="fieldSpacer">
+              <div class="transform-field-rows" id="fieldRows"></div>
+            </div>
+            <div class="transform-empty" id="fieldEmpty">풀 수 있는 문자열 값이 없습니다</div>
+          </div>
         </div>
         <div class="transform-preview-section">
           <div class="transform-section-label">Preview</div>
@@ -60,10 +86,19 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
 
   const sourceTa = overlay.querySelector<HTMLTextAreaElement>('#transformSource')!;
   const extractToggle = overlay.querySelector<HTMLInputElement>('#extractToggle')!;
-  const unstringifyToggle = overlay.querySelector<HTMLInputElement>('#unstringifyToggle')!;
+  const preserveToggle = overlay.querySelector<HTMLInputElement>('#preserveFormatToggle')!;
+  const preserveLabel = overlay.querySelector<HTMLElement>('#preserveFormatLabel')!;
   const statusEl = overlay.querySelector<HTMLElement>('#transformStatus')!;
+  const candidatesSection = overlay.querySelector<HTMLElement>('#candidatesSection')!;
   const candidateList = overlay.querySelector<HTMLElement>('#candidateList')!;
   const candidateCount = overlay.querySelector<HTMLElement>('#candidateCount')!;
+  const fieldList = overlay.querySelector<HTMLElement>('#fieldList')!;
+  const fieldSpacer = overlay.querySelector<HTMLElement>('#fieldSpacer')!;
+  const fieldRows = overlay.querySelector<HTMLElement>('#fieldRows')!;
+  const fieldEmpty = overlay.querySelector<HTMLElement>('#fieldEmpty')!;
+  const fieldCount = overlay.querySelector<HTMLElement>('#fieldCount')!;
+  const selectAllBtn = overlay.querySelector<HTMLButtonElement>('#fieldSelectAllBtn')!;
+  const clearAllBtn = overlay.querySelector<HTMLButtonElement>('#fieldClearAllBtn')!;
   const previewEl = overlay.querySelector<HTMLElement>('#transformPreview')!;
   const previewWrap = overlay.querySelector<HTMLElement>('.transform-preview-wrap')!;
   const loadingEl = overlay.querySelector<HTMLElement>('#transformLoading')!;
@@ -77,29 +112,42 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
   const virtualScroller = new VirtualScroller(previewEl);
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let previewTimer: ReturnType<typeof setTimeout> | null = null;
   let loadingHintTimer: ReturnType<typeof setTimeout> | null = null;
   let scanGeneration = 0;
   let currentJobId = 0;
-  let lastScanText = '';
-  let lastScanOptions = { extract: true, unstringify: false };
   let candidates: JsonCandidateMeta[] = [];
   let selectedIndex: number | null = null;
+
+  let fieldNodes: StringifiedNode[] = [];
+  let selectedKeys = new Set<string>();
+  let spansAvailable = false;
+  let scanWarnings: string[] = [];
+  let fieldWarnings: string[] = [];
+  let pendingFocusPaths: string[] | null = null;
+
   let formattedPreview = '';
   let fullFormatted = '';
   let previewTruncated = false;
 
   function escapeHtml(text: string): string {
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function getInputTextarea(): HTMLTextAreaElement | null {
     return document.querySelector<HTMLTextAreaElement>('#input');
   }
 
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n}B`;
+    if (n < 1024 * 1024) return `${Math.round(n / 1024)}K`;
+    return `${(n / (1024 * 1024)).toFixed(1)}M`;
+  }
+
   function setLoading(loading: boolean) {
     loadingEl.classList.toggle('hidden', !loading);
     extractToggle.disabled = loading;
-    unstringifyToggle.disabled = loading;
+    preserveToggle.disabled = loading || !spansAvailable;
     copyBtn.disabled = loading || !fullFormatted;
     applyBtn.disabled = loading || !fullFormatted;
     if (loading) {
@@ -113,18 +161,27 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
     }
   }
 
-  function renderStatus(warnings: string[]) {
+  function renderStatus() {
     const parts: string[] = [];
     if (needsSizeWarning(sourceTa.value)) {
       parts.push('<span class="transform-warn">5MB 이상 — 미리보기가 제한됩니다.</span>');
     }
-    warnings.forEach(w => {
+    if (!spansAvailable && fieldNodes.length > 0) {
+      parts.push('<span class="transform-info">이 문서는 원본 포맷 유지를 쓸 수 없어 전체 재직렬화로 출력합니다.</span>');
+    }
+    [...scanWarnings, ...fieldWarnings].forEach(w => {
       parts.push(`<span class="transform-info">${escapeHtml(w)}</span>`);
     });
     statusEl.innerHTML = parts.join(' ');
   }
 
+  /* ---------------- Candidates ---------------- */
+
   function renderCandidates() {
+    const useExtract = extractToggle.checked;
+    candidatesSection.classList.toggle('hidden', !useExtract);
+    if (!useExtract) return;
+
     candidateCount.textContent = candidates.length ? `(${candidates.length})` : '';
     if (candidates.length === 0) {
       candidateList.innerHTML = '<div class="transform-empty">후보 없음</div>';
@@ -143,10 +200,97 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
       radio.addEventListener('change', () => {
         selectedIndex = parseInt(radio.value, 10);
         renderCandidates();
-        loadPreview(selectedIndex);
+        void loadFields();
       });
     });
   }
+
+  /* ---------------- Stringified fields ---------------- */
+
+  function fieldBadge(node: StringifiedNode): string {
+    if (node.decode === 'ndjson') return `ndjson ×${node.lineCount ?? 0}`;
+    if (node.decode === 'url') return `url ${node.kind}`;
+    return node.kind;
+  }
+
+  function renderFieldRows() {
+    const total = fieldNodes.length;
+    fieldEmpty.classList.toggle('hidden', total > 0);
+    fieldSpacer.style.height = `${total * ROW_HEIGHT}px`;
+
+    if (total === 0) {
+      fieldRows.innerHTML = '';
+      return;
+    }
+
+    const viewport = fieldList.clientHeight || ROW_HEIGHT * 8;
+    const first = Math.max(0, Math.floor(fieldList.scrollTop / ROW_HEIGHT) - ROW_OVERSCAN);
+    const last = Math.min(total, Math.ceil((fieldList.scrollTop + viewport) / ROW_HEIGHT) + ROW_OVERSCAN);
+
+    fieldRows.style.transform = `translateY(${first * ROW_HEIGHT}px)`;
+    fieldRows.innerHTML = fieldNodes.slice(first, last).map((node, offset) => {
+      const idx = first + offset;
+      const checked = selectedKeys.has(node.key) ? 'checked' : '';
+      const indent = 6 + node.depth * FIELD_INDENT;
+      const label = node.fallbackRoot ? '. (문서 전체)' : node.path;
+      return `<label class="transform-field-row" style="height:${ROW_HEIGHT}px;padding-left:${indent}px" title="${escapeHtml(node.preview)}">
+        <input type="checkbox" data-idx="${idx}" ${checked}>
+        <span class="transform-field-path">${escapeHtml(label)}</span>
+        <span class="transform-field-badge">${escapeHtml(fieldBadge(node))}</span>
+        <span class="transform-field-size">${formatBytes(node.rawSize)}</span>
+      </label>`;
+    }).join('');
+  }
+
+  function renderFieldSection() {
+    fieldCount.textContent = fieldNodes.length
+      ? `(${selectedKeys.size}/${fieldNodes.length})`
+      : '';
+    selectAllBtn.disabled = fieldNodes.length === 0;
+    clearAllBtn.disabled = fieldNodes.length === 0;
+    renderFieldRows();
+  }
+
+  function setSelection(next: Set<string>) {
+    selectedKeys = next;
+    renderFieldSection();
+    schedulePreview();
+  }
+
+  function defaultSelection(nodes: StringifiedNode[]): Set<string> {
+    if (pendingFocusPaths && pendingFocusPaths.length > 0) {
+      const wanted = new Set(pendingFocusPaths);
+      const picked = new Set(nodes.filter(n => wanted.has(n.path)).map(n => n.key));
+      pendingFocusPaths = null;
+      if (picked.size > 0) return withAncestors(nodes, picked);
+    }
+    pendingFocusPaths = null;
+    return allKeys(nodes);
+  }
+
+  fieldList.addEventListener('scroll', renderFieldRows, { passive: true });
+
+  fieldList.addEventListener('change', (e) => {
+    const target = e.target as HTMLElement;
+    if (!(target instanceof HTMLInputElement) || target.type !== 'checkbox') return;
+    const idx = parseInt(target.dataset['idx'] ?? '', 10);
+    const node = fieldNodes[idx];
+    if (!node) return;
+
+    const next = new Set(selectedKeys);
+    if (target.checked) {
+      next.add(node.key);
+      setSelection(withAncestors(fieldNodes, next));
+    } else {
+      next.delete(node.key);
+      setSelection(pruneOrphans(fieldNodes, next));
+    }
+  });
+
+  selectAllBtn.addEventListener('click', () => setSelection(allKeys(fieldNodes)));
+  clearAllBtn.addEventListener('click', () => setSelection(new Set()));
+
+  /* ---------------- Preview ---------------- */
 
   function renderPreviewText(text: string) {
     previewTruncated = false;
@@ -181,76 +325,122 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
     applyBtn.disabled = !fullFormatted;
   }
 
-  async function loadPreview(index: number) {
-    if (index < 0 || !lastScanText) return;
+  function clearPreview() {
+    fullFormatted = '';
+    formattedPreview = '';
+    previewEl.classList.remove('virtual-active');
+    virtualScroller.setText('');
+    previewEl.textContent = '';
+    previewWrap.querySelector('.transform-preview-note')?.remove();
+    copyBtn.disabled = true;
+    applyBtn.disabled = true;
+  }
+
+  async function loadPreview() {
+    const gen = scanGeneration;
     setLoading(true);
     try {
-      const formatted = await client.format(currentJobId, index, lastScanText, lastScanOptions);
+      const formatted = await client.render(
+        currentJobId,
+        [...selectedKeys],
+        preserveToggle.checked && spansAvailable
+      );
+      if (gen !== scanGeneration) return;
       renderPreviewText(formatted);
     } catch (err) {
+      if (gen !== scanGeneration) return;
       previewEl.textContent = (err as Error).message;
-      fullFormatted = '';
-      copyBtn.disabled = true;
-      applyBtn.disabled = true;
+      clearPreview();
     } finally {
-      setLoading(false);
+      if (gen === scanGeneration) setLoading(false);
+    }
+  }
+
+  function schedulePreview() {
+    if (previewTimer !== null) clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => void loadPreview(), PREVIEW_DEBOUNCE_MS);
+  }
+
+  /* ---------------- Scan pipeline ---------------- */
+
+  async function loadFields() {
+    const gen = scanGeneration;
+    const candidateIndex = extractToggle.checked ? selectedIndex : null;
+
+    if (extractToggle.checked && candidateIndex === null) {
+      fieldNodes = [];
+      selectedKeys = new Set();
+      spansAvailable = false;
+      fieldWarnings = [];
+      renderFieldSection();
+      renderStatus();
+      clearPreview();
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = await client.fields(currentJobId, candidateIndex);
+      if (gen !== scanGeneration) return;
+
+      fieldNodes = result.nodes;
+      spansAvailable = result.spansAvailable;
+      fieldWarnings = result.warnings;
+      selectedKeys = defaultSelection(fieldNodes);
+
+      preserveToggle.disabled = !spansAvailable;
+      preserveLabel.classList.toggle('disabled', !spansAvailable);
+
+      renderFieldSection();
+      renderStatus();
+      await loadPreview();
+    } catch (err) {
+      if (gen !== scanGeneration) return;
+      fieldNodes = [];
+      selectedKeys = new Set();
+      fieldWarnings = [(err as Error).message];
+      renderFieldSection();
+      renderStatus();
+      clearPreview();
+    } finally {
+      if (gen === scanGeneration) setLoading(false);
     }
   }
 
   async function runScan() {
     const text = sourceTa.value;
-    const options = {
-      extract: extractToggle.checked,
-      unstringify: unstringifyToggle.checked,
-    };
-
-    if (!options.extract && !options.unstringify) {
-      candidates = [];
-      selectedIndex = null;
-      fullFormatted = '';
-      renderCandidates();
-      previewEl.textContent = '';
-      statusEl.innerHTML = '<span class="transform-warn">Extract 또는 Unstringify를 선택하세요.</span>';
-      copyBtn.disabled = true;
-      applyBtn.disabled = true;
-      return;
-    }
+    // Extract를 끄면 후보 목록이 필요 없다. 문서 전체를 대상으로 필드 스캔만 돌린다.
+    // (Extract가 켜져 있을 때 unstringify:true는 escape된 span도 후보로 복구해 준다)
+    const options = { extract: extractToggle.checked, unstringify: extractToggle.checked };
 
     const guard = checkSizeGuard(text);
     if (!guard.ok) {
       statusEl.innerHTML = `<span class="transform-warn">${escapeHtml(guard.reason)}</span>`;
       candidates = [];
+      fieldNodes = [];
       renderCandidates();
+      renderFieldSection();
+      clearPreview();
       return;
     }
 
     const gen = ++scanGeneration;
     setLoading(true);
-    fullFormatted = '';
-    formattedPreview = '';
+    clearPreview();
 
     try {
       const result = await client.scan(text, options);
       if (gen !== scanGeneration) return;
 
       currentJobId = result.jobId;
-      lastScanText = text;
-      lastScanOptions = options;
       candidates = result.candidates;
-      renderStatus(result.warnings);
+      scanWarnings = options.extract ? result.warnings : [];
 
-      if (candidates.length > 0) {
-        selectedIndex = candidates[0].index;
-      } else {
-        selectedIndex = null;
-        previewEl.textContent = '';
-      }
-
+      selectedIndex = candidates.length > 0 ? candidates[0].index : null;
       renderCandidates();
+      renderStatus();
 
-      if (selectedIndex !== null) {
-        await loadPreview(selectedIndex);
-      }
+      await loadFields();
     } catch (err) {
       if (gen !== scanGeneration) return;
       if ((err as Error).message === 'Cancelled') return;
@@ -262,8 +452,10 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
 
   function scheduleScan() {
     if (debounceTimer !== null) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => runScan(), DEBOUNCE_MS);
+    debounceTimer = setTimeout(() => void runScan(), DEBOUNCE_MS);
   }
+
+  /* ---------------- Public API ---------------- */
 
   const api: TransformModalApi = {
     async show(opts = {}) {
@@ -285,10 +477,9 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
       }
 
       sourceTa.value = text;
-
-      const suggested = suggestDefaultOptions(text);
       extractToggle.checked = opts.extract ?? true;
-      unstringifyToggle.checked = opts.unstringify ?? suggested.unstringify;
+      preserveToggle.checked = opts.preserveFormat ?? false;
+      pendingFocusPaths = opts.focusPaths ?? null;
 
       if (needsSizeConfirm(text)) {
         if (!confirm('입력이 10MB를 초과합니다. 처리에 시간이 걸릴 수 있습니다. 계속하시겠습니까?')) {
@@ -305,9 +496,14 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
       overlay.classList.add('show');
       candidates = [];
       selectedIndex = null;
-      fullFormatted = '';
+      fieldNodes = [];
+      selectedKeys = new Set();
+      spansAvailable = false;
+      scanWarnings = [];
+      fieldWarnings = [];
       renderCandidates();
-      previewEl.textContent = '';
+      renderFieldSection();
+      clearPreview();
       statusEl.innerHTML = usedClipboard
         ? '<span class="transform-info">Input이 비어 있어 클립보드 내용을 불러왔습니다.</span>'
         : '';
@@ -317,14 +513,19 @@ export function createTransformModal(onApply?: (undo: (() => void) | null) => vo
 
     hide() {
       scanGeneration++;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      if (previewTimer !== null) clearTimeout(previewTimer);
       client.cancel();
       overlay.classList.remove('show');
     },
   };
 
   extractToggle.addEventListener('change', scheduleScan);
-  unstringifyToggle.addEventListener('change', scheduleScan);
-  sourceTa.addEventListener('input', scheduleScan);
+  preserveToggle.addEventListener('change', () => schedulePreview());
+  sourceTa.addEventListener('input', () => {
+    pendingFocusPaths = null;
+    scheduleScan();
+  });
 
   copyBtn.addEventListener('click', async () => {
     if (!fullFormatted) return;

@@ -5,9 +5,10 @@ import { csvToJson, detectDelimiter } from '../core/csv-parser';
 import { extractJson, needsJsonExtraction, tryFormatJson } from '../utils/json-extractor';
 import { preprocessJson, formatCandidate } from '../utils/json-preprocessor';
 import { scanJson, filterEntries, type JsonEntry } from '../utils/json-position-scanner';
-import type { ComponentElement, InputPanelApi } from '../types';
+import { decodeStringified } from '../utils/stringified-fields';
+import type { ComponentElement, InputPanelApi, TransformModalOpenOptions } from '../types';
 
-export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() => void) | null, onOpenTransform?: () => void) {
+export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() => void) | null, onOpenTransform?: (opts?: TransformModalOpenOptions) => void) {
   const panel = document.createElement('div');
   panel.className = 'panel input-panel';
   panel.setAttribute('role', 'region');
@@ -346,6 +347,20 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
     findResultList.innerHTML = results.slice(0, MAX_DISPLAY).map((e, i) => {
       const pathHtml = query ? highlightMatch(e.path, query, useRegex) : escapeHtml(e.path);
       const valueHtml = query ? highlightMatch(e.value, query, useRegex) : escapeHtml(e.value);
+
+      // e.value는 60자로 잘린 표시용 문자열이라 판정에 쓰지 않는다. 원본 리터럴에서 판정한다.
+      const literal = textarea.value.slice(e.valueStart, e.valueEnd);
+      let unstringifiable = false;
+      if (literal.startsWith('"')) {
+        try {
+          const s = JSON.parse(literal);
+          unstringifiable = typeof s === 'string' && decodeStringified(s) !== null;
+        } catch { /* 무시 */ }
+      }
+      const unstringBtnHtml = unstringifiable
+        ? `<button class="find-unstring-btn" type="button" title="이 필드만 unstringify" data-path="${escapeHtml(e.path)}">↧</button>`
+        : '';
+
       return `<div class="find-result-item" tabindex="-1"
         data-ks="${e.keyStart}" data-ke="${e.keyEnd}"
         data-vs="${e.valueStart}" data-ve="${e.valueEnd}"
@@ -353,6 +368,7 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
         data-index="${i}">
         <span class="find-path">${pathHtml}</span>
         <span class="find-value">${valueHtml}</span>
+        ${unstringBtnHtml}
       </div>`;
     }).join('') + (overflow ? '<div class="find-overflow">결과가 200개로 제한되었습니다. 검색어를 구체화하세요.</div>' : '');
 
@@ -369,6 +385,14 @@ export function createInputPanel(onInputChange: () => void, onExecuteQuery: (() 
         navigateToPosition(selectStart, selectEnd);
         findResultList.querySelectorAll('.find-result-item.active').forEach(el => el.classList.remove('active'));
         item.classList.add('active');
+      });
+
+      const unstringBtn = item.querySelector<HTMLButtonElement>('.find-unstring-btn');
+      unstringBtn?.addEventListener('click', (event: MouseEvent) => {
+        event.stopPropagation();
+        const path = unstringBtn.dataset['path']!;
+        closeFindDropdown();
+        onOpenTransform?.({ source: 'input', extract: false, focusPaths: [path] });
       });
 
       item.addEventListener('keydown', (e: KeyboardEvent) => {

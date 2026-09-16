@@ -168,7 +168,12 @@ export interface TransformModalOpenOptions {
   source?: 'input' | 'empty';
   initialText?: string;
   extract?: boolean;
+  /** @deprecated 전체 Unstringify는 필드 트리의 루트 노드로 흡수되었다 */
   unstringify?: boolean;
+  /** 이 jq 경로들만 체크된 상태로 연다 (Find 드롭다운 인라인 진입용) */
+  focusPaths?: string[];
+  /** 원본 포맷 유지(span 치환) 모드로 열기 */
+  preserveFormat?: boolean;
 }
 
 export interface TransformModalApi {

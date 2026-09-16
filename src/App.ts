@@ -1,4 +1,4 @@
-import type { ComponentElement, InputPanelApi, QueryPanelApi, OutputPanelElement, SaveQueryModalApi, HelpModalApi, TransformModalApi, PanelToggleApi, FormatResult, ExecuteResult } from './types';
+import type { ComponentElement, InputPanelApi, QueryPanelApi, OutputPanelElement, SaveQueryModalApi, HelpModalApi, TransformModalApi, PanelToggleApi, FormatResult, ExecuteResult, TransformModalOpenOptions } from './types';
 import { createHeader } from './components/Header';
 import { createInputPanel } from './components/InputPanel';
 import { createQueryPanel } from './components/QueryPanel';
@@ -76,7 +76,7 @@ export class App {
     this.inputPanel = createInputPanel(
       () => this.executeQuery(),
       () => this.executeQuery(true),
-      () => this.openTransformModal(),
+      (opts) => this.openTransformModal(opts),
     ) as unknown as ComponentElement<InputPanelApi>;
     this.queryPanel = createQueryPanel(
       () => this.executeQuery(),
@@ -313,8 +313,8 @@ export class App {
   }
 
   /** JSON Transform 모달 열기 */
-  openTransformModal() {
-    void this.transformModal?.api.show({ source: 'input', extract: true });
+  openTransformModal(opts?: TransformModalOpenOptions) {
+    void this.transformModal?.api.show({ source: 'input', extract: true, ...opts });
   }
 
   /** 출력 패널 최대화 토글. input/query 패널을 0 높이로 접어 출력 패널이 전체 높이를 차지하게 한다. */

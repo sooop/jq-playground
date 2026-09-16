@@ -1501,6 +1501,43 @@ select:focus-visible {
     white-space: nowrap;
 }
 
+.find-unstring-btn {
+    flex-shrink: 0;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-tertiary);
+    font-size: var(--font-size-sm);
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.35;
+    transition: opacity var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+
+.find-result-item:hover .find-unstring-btn,
+.find-result-item:focus-within .find-unstring-btn {
+    opacity: 1;
+}
+
+.find-unstring-btn:hover {
+    opacity: 1;
+    color: var(--accent-input);
+    background: var(--accent-bg);
+}
+
+.find-unstring-btn:focus-visible {
+    opacity: 1;
+    outline: none;
+    box-shadow: var(--ring);
+}
+
 .find-result-item mark {
     background: #fef08a;
     color: #000;
