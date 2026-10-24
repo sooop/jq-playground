@@ -1,0 +1,598 @@
+/** Worker with a blob URL attached for cleanup. */
+export type BlobWorker = Worker & { _blobUrl: string };
+
+/** 자동완성 후보로 쓰이는 jq 내장 함수 기술. */
+export interface JqFunctionInfo {
+  name: string
+  desc: string
+  inputType: string
+  signature?: string
+  example?: string
+}
+
+// jq built-in functions and operators
+// inputType: 'any' (default), 'array', 'object', 'string', 'number', 'item' (individual element), 'array|object'
+export const JQ_FUNCTIONS: JqFunctionInfo[] = [
+  // Basic filters
+  { name: '.', desc: 'Identity filter', inputType: 'any' },
+  { name: '..', desc: 'Recursive descent', inputType: 'any' },
+  { name: '.[]', desc: 'Array/object value iterator', inputType: 'array|object' },
+  { name: '.foo', desc: 'Object field access', inputType: 'object' },
+
+  // Types
+  { name: 'type', desc: 'Get value type', inputType: 'any' },
+  { name: 'length', desc: 'Get length of value', inputType: 'any' },
+  { name: 'keys', desc: 'Get object keys or array indices', inputType: 'array|object' },
+  { name: 'keys_unsorted', desc: 'Get keys without sorting', inputType: 'array|object' },
+  { name: 'empty', desc: 'Return no results', inputType: 'any' },
+  { name: 'null', desc: 'Null value', inputType: 'any' },
+
+  // Array operations
+  { name: 'map', desc: 'Map expression over array', inputType: 'array', signature: 'map(expr)', example: '[1,2,3] | map(. * 2)\n// → [2,4,6]' },
+  { name: 'select', desc: 'Filter by condition (use on individual items)', inputType: 'item', signature: 'select(bool_expr)', example: '[1,2,3,4,5] | .[] | select(. > 3)\n// → 4\n// → 5' },
+  { name: 'sort', desc: 'Sort array', inputType: 'array' },
+  { name: 'sort_by', desc: 'Sort by expression', inputType: 'array', signature: 'sort_by(expr)', example: '[{"age":30},{"age":25}] | sort_by(.age)\n// → sorted by age' },
+  { name: 'reverse', desc: 'Reverse array', inputType: 'array' },
+  { name: 'unique', desc: 'Get unique values', inputType: 'array' },
+  { name: 'unique_by', desc: 'Get unique values by expression', inputType: 'array', signature: 'unique_by(expr)', example: '[{"x":1},{"x":2},{"x":1}] | unique_by(.x)' },
+  { name: 'group_by', desc: 'Group by expression', inputType: 'array', signature: 'group_by(expr)', example: '[{"type":"a"},{"type":"b"},{"type":"a"}] | group_by(.type)' },
+  { name: 'flatten', desc: 'Flatten array', inputType: 'array', signature: 'flatten or flatten(depth)', example: '[[1,[2]],3] | flatten\n// → [1,2,3]' },
+  { name: 'add', desc: 'Add/concatenate array elements', inputType: 'array' },
+  { name: 'min', desc: 'Get minimum value', inputType: 'array' },
+  { name: 'max', desc: 'Get maximum value', inputType: 'array' },
+  { name: 'min_by', desc: 'Get minimum by expression', inputType: 'array', signature: 'min_by(expr)', example: '[{"n":3},{"n":1},{"n":2}] | min_by(.n)' },
+  { name: 'max_by', desc: 'Get maximum by expression', inputType: 'array', signature: 'max_by(expr)', example: '[{"n":3},{"n":1},{"n":2}] | max_by(.n)' },
+  { name: 'first', desc: 'Get first element', inputType: 'array', signature: 'first or first(expr)', example: '[1,2,3] | first\n// → 1' },
+  { name: 'last', desc: 'Get last element', inputType: 'array', signature: 'last or last(expr)', example: '[1,2,3] | last\n// → 3' },
+  { name: 'nth', desc: 'Get nth element', inputType: 'array' },
+  { name: 'indices', desc: 'Get indices of value', inputType: 'array|string' },
+  { name: 'index', desc: 'Get first index of value', inputType: 'array|string' },
+  { name: 'rindex', desc: 'Get last index of value', inputType: 'array|string' },
+  { name: 'inside', desc: 'Check if inside another value', inputType: 'any', signature: 'inside(value)', example: '{"a":1} | inside({"a":1,"b":2})\n// → true' },
+  { name: 'contains', desc: 'Check if contains value', inputType: 'any', signature: 'contains(value)', example: '{"a":1,"b":2} | contains({"a":1})\n// → true' },
+  { name: 'has', desc: 'Check if has key', inputType: 'array|object', signature: 'has(key)', example: '{"a":1} | has("a")\n// → true' },
+  { name: 'in', desc: 'Check if key is in object', inputType: 'any' },
+  { name: 'any', desc: 'Check if any element matches', inputType: 'array', signature: 'any or any(cond) or any(gen; cond)', example: '[true,false] | any\n// → true' },
+  { name: 'all', desc: 'Check if all elements match', inputType: 'array', signature: 'all or all(cond) or all(gen; cond)', example: '[true,false] | all\n// → false' },
+  { name: 'limit', desc: 'Limit number of outputs', inputType: 'any', signature: 'limit(n; expr)', example: 'limit(3; range(10))\n// → 0, 1, 2' },
+  { name: 'until', desc: 'Repeat until condition', inputType: 'any' },
+  { name: 'while', desc: 'Repeat while condition', inputType: 'any' },
+  { name: 'repeat', desc: 'Repeat expression', inputType: 'any' },
+  { name: 'range', desc: 'Generate range of numbers', inputType: 'any', signature: 'range(n) or range(from;to) or range(from;to;by)', example: 'range(5)\n// → 0, 1, 2, 3, 4' },
+  { name: 'recurse', desc: 'Recursive application', inputType: 'any', signature: 'recurse or recurse(f)', example: '{"a":{"b":1}} | recurse | .b? // → 1' },
+  { name: 'walk', desc: 'Walk through structure', inputType: 'any', signature: 'walk(f)', example: '{"a":[1,2]} | walk(if type == "number" then . * 2 else . end)' },
+  { name: 'transpose', desc: 'Transpose matrix', inputType: 'array' },
+
+  // String operations
+  { name: 'tostring', desc: 'Convert to string', inputType: 'any' },
+  { name: 'tonumber', desc: 'Convert to number', inputType: 'any' },
+  { name: 'ascii_downcase', desc: 'Convert to lowercase', inputType: 'string', signature: 'ascii_downcase', example: '"Hello World" | ascii_downcase\n// → "hello world"' },
+  { name: 'ascii_upcase', desc: 'Convert to uppercase', inputType: 'string', signature: 'ascii_upcase', example: '"hello" | ascii_upcase\n// → "HELLO"' },
+  { name: 'startswith', desc: 'Check if starts with string', inputType: 'string', signature: 'startswith(str)', example: '"foobar" | startswith("foo")\n// → true' },
+  { name: 'endswith', desc: 'Check if ends with string', inputType: 'string', signature: 'endswith(str)', example: '"foobar" | endswith("bar")\n// → true' },
+  { name: 'ltrimstr', desc: 'Remove prefix string', inputType: 'string' },
+  { name: 'rtrimstr', desc: 'Remove suffix string', inputType: 'string' },
+  { name: 'split', desc: 'Split string', inputType: 'string', signature: 'split(str)', example: '"a,b,c" | split(",")\n// → ["a","b","c"]' },
+  { name: 'join', desc: 'Join array to string', inputType: 'array', signature: 'join(str)', example: '["a","b","c"] | join(",")\n// → "a,b,c"' },
+  { name: 'test', desc: 'Test regex match', inputType: 'string', signature: 'test(regex) or test(regex; flags)', example: '"foobar" | test("foo.*")\n// → true' },
+  { name: 'match', desc: 'Match regex', inputType: 'string', signature: 'match(regex) or match(regex; flags)', example: '"foo bar" | match("(foo) (bar)")\n// → match object' },
+  { name: 'capture', desc: 'Capture regex groups', inputType: 'string', signature: 'capture(regex)', example: '"foo bar" | capture("(?P<a>\\\\w+) (?P<b>\\\\w+)")' },
+  { name: 'splits', desc: 'Split by regex', inputType: 'string' },
+  { name: 'sub', desc: 'Substitute first regex match', inputType: 'string', signature: 'sub(regex; tostr)', example: '"hello world" | sub("world"; "jq")\n// → "hello jq"' },
+  { name: 'gsub', desc: 'Substitute all regex matches', inputType: 'string', signature: 'gsub(regex; tostr)', example: '"aabbcc" | gsub("b"; "x")\n// → "aaxxcc"' },
+  { name: 'implode', desc: 'Convert codepoints to string', inputType: 'array' },
+  { name: 'explode', desc: 'Convert string to codepoints', inputType: 'string' },
+
+  // Math operations
+  { name: 'floor', desc: 'Round down to integer', inputType: 'number', signature: 'floor', example: '3.7 | floor\n// → 3' },
+  { name: 'ceil', desc: 'Round up to integer', inputType: 'number', signature: 'ceil', example: '3.2 | ceil\n// → 4' },
+  { name: 'round', desc: 'Round to nearest integer', inputType: 'number', signature: 'round', example: '3.5 | round\n// → 4' },
+  { name: 'sqrt', desc: 'Square root', inputType: 'number', signature: 'sqrt', example: '9 | sqrt\n// → 3' },
+  { name: 'pow', desc: 'Power', inputType: 'number', signature: 'pow(.; n)', example: '2 | pow(.; 10)\n// → 1024' },
+  { name: 'log', desc: 'Natural logarithm', inputType: 'number' },
+  { name: 'log10', desc: 'Base-10 logarithm', inputType: 'number' },
+  { name: 'log2', desc: 'Base-2 logarithm', inputType: 'number' },
+  { name: 'exp', desc: 'Exponential', inputType: 'number' },
+  { name: 'exp10', desc: 'Base-10 exponential', inputType: 'number' },
+  { name: 'exp2', desc: 'Base-2 exponential', inputType: 'number' },
+  { name: 'sin', desc: 'Sine', inputType: 'number' },
+  { name: 'cos', desc: 'Cosine', inputType: 'number' },
+  { name: 'tan', desc: 'Tangent', inputType: 'number' },
+  { name: 'asin', desc: 'Arcsine', inputType: 'number' },
+  { name: 'acos', desc: 'Arccosine', inputType: 'number' },
+  { name: 'atan', desc: 'Arctangent', inputType: 'number' },
+  { name: 'fabs', desc: 'Absolute value', inputType: 'number' },
+
+  // Object operations
+  { name: 'to_entries', desc: 'Convert object to key-value pairs', inputType: 'object', signature: 'to_entries', example: '{"a":1,"b":2} | to_entries\n// → [{"key":"a","value":1},...]' },
+  { name: 'from_entries', desc: 'Convert key-value pairs to object', inputType: 'array', signature: 'from_entries', example: '[{"key":"a","value":1}] | from_entries\n// → {"a":1}' },
+  { name: 'with_entries', desc: 'Transform object entries', inputType: 'object', signature: 'with_entries(expr)', example: '{"a":1} | with_entries(.value += 1)\n// → {"a":2}' },
+  { name: 'paths', desc: 'Get all paths', inputType: 'any', signature: 'paths or paths(filter)', example: '{"a":{"b":1}} | [paths]\n// → [["a"],["a","b"]]' },
+  { name: 'leaf_paths', desc: 'Get paths to leaf values', inputType: 'any' },
+  { name: 'getpath', desc: 'Get value at path', inputType: 'any', signature: 'getpath(path_array)', example: '{"a":{"b":1}} | getpath(["a","b"])\n// → 1' },
+  { name: 'setpath', desc: 'Set value at path', inputType: 'any', signature: 'setpath(path_array; value)', example: '{"a":1} | setpath(["b"]; 2)\n// → {"a":1,"b":2}' },
+  { name: 'delpaths', desc: 'Delete paths', inputType: 'any' },
+
+  // Date operations
+  { name: 'now', desc: 'Current Unix timestamp', inputType: 'any' },
+  { name: 'fromdateiso8601', desc: 'Parse ISO8601 date', inputType: 'string' },
+  { name: 'todateiso8601', desc: 'Format as ISO8601 date', inputType: 'number' },
+  { name: 'fromdate', desc: 'Parse Unix timestamp', inputType: 'number' },
+  { name: 'todate', desc: 'Format Unix timestamp', inputType: 'number' },
+  { name: 'strftime', desc: 'Format time string', inputType: 'number' },
+  { name: 'strptime', desc: 'Parse time string', inputType: 'string' },
+  { name: 'gmtime', desc: 'Convert to GMT time array', inputType: 'number' },
+  { name: 'mktime', desc: 'Convert time array to timestamp', inputType: 'array' },
+
+  // I/O and formatting
+  { name: 'format', desc: 'Format string', inputType: 'string' },
+  { name: '@base64', desc: 'Base64 encode', inputType: 'string' },
+  { name: '@base64d', desc: 'Base64 decode', inputType: 'string' },
+  { name: '@uri', desc: 'URI encode', inputType: 'string' },
+  { name: '@csv', desc: 'CSV format', inputType: 'array' },
+  { name: '@tsv', desc: 'TSV format', inputType: 'array' },
+  { name: '@json', desc: 'JSON format', inputType: 'any' },
+  { name: '@html', desc: 'HTML encode', inputType: 'string' },
+  { name: '@text', desc: 'Plain text format', inputType: 'any' },
+  { name: '@sh', desc: 'Shell escape', inputType: 'string' },
+
+  // Control flow
+  { name: 'if', desc: 'Conditional expression', inputType: 'any' },
+  { name: 'then', desc: 'Then branch', inputType: 'any' },
+  { name: 'else', desc: 'Else branch', inputType: 'any' },
+  { name: 'elif', desc: 'Else-if branch', inputType: 'any' },
+  { name: 'end', desc: 'End conditional', inputType: 'any' },
+  { name: 'and', desc: 'Logical AND', inputType: 'any' },
+  { name: 'or', desc: 'Logical OR', inputType: 'any' },
+  { name: 'not', desc: 'Logical NOT', inputType: 'any' },
+  { name: 'try', desc: 'Try expression', inputType: 'any' },
+  { name: 'catch', desc: 'Catch error', inputType: 'any' },
+
+  // Special
+  { name: 'error', desc: 'Raise error', inputType: 'any' },
+  { name: 'debug', desc: 'Debug output', inputType: 'any' },
+  { name: 'env', desc: 'Environment variables', inputType: 'any' },
+  { name: '$__loc__', desc: 'Location info', inputType: 'any' },
+  { name: 'input', desc: 'Read next input', inputType: 'any' },
+  { name: 'inputs', desc: 'Read all inputs', inputType: 'any' },
+  { name: 'recurse_down', desc: 'Recursive descent', inputType: 'any' },
+  { name: 'isnan', desc: 'Check if NaN', inputType: 'number' },
+  { name: 'isinfinite', desc: 'Check if infinite', inputType: 'number' },
+  { name: 'isfinite', desc: 'Check if finite', inputType: 'number' },
+  { name: 'isnormal', desc: 'Check if normal', inputType: 'number' },
+  { name: 'infinite', desc: 'Infinite value', inputType: 'any' },
+  { name: 'nan', desc: 'NaN value', inputType: 'any' },
+
+  // Advanced
+  { name: 'path', desc: 'Get path to value', inputType: 'any', signature: 'path(expr)', example: '{"a":{"b":1}} | path(..)\n// → paths in input' },
+  { name: 'del', desc: 'Delete path', inputType: 'any', signature: 'del(path_expr)', example: '{"a":1,"b":2} | del(.a)\n// → {"b":2}' },
+  { name: 'reduce', desc: 'Reduce expression', inputType: 'any', signature: 'reduce expr as $var (init; update)', example: '[1,2,3,4,5] | reduce .[] as $x (0; . + $x)\n// → 15' },
+  { name: 'foreach', desc: 'Foreach loop', inputType: 'any', signature: 'foreach expr as $var (init; update)', example: '[1,2,3] | [foreach .[] as $x (0; . + $x)]' },
+  { name: 'as', desc: 'Bind variable', inputType: 'any' },
+  { name: 'def', desc: 'Define function', inputType: 'any' },
+  { name: 'ascii', desc: 'ASCII value', inputType: 'string' },
+  { name: 'utf8bytelength', desc: 'UTF-8 byte length', inputType: 'string' },
+  { name: 'tojson', desc: 'Convert to JSON string', inputType: 'any', signature: 'tojson', example: '{"a":1} | tojson\n// → "{\"a\":1}"' },
+  { name: 'fromjson', desc: 'Parse JSON string', inputType: 'string', signature: 'fromjson', example: '"{\"a\":1}" | fromjson\n// → {"a":1}' },
+  { name: 'scan', desc: 'Scan for regex matches', inputType: 'string' },
+  { name: 'combinations', desc: 'Get combinations', inputType: 'array' },
+  { name: 'builtins', desc: 'List all builtin functions', inputType: 'any' },
+
+  // Null/Boolean handling
+  { name: 'true', desc: 'Boolean true', inputType: 'any' },
+  { name: 'false', desc: 'Boolean false', inputType: 'any' },
+  { name: 'isempty', desc: 'Check if empty', inputType: 'any' },
+
+  // Type filters
+  { name: 'arrays', desc: 'Select only arrays', inputType: 'any' },
+  { name: 'objects', desc: 'Select only objects', inputType: 'any' },
+  { name: 'iterables', desc: 'Select only iterables', inputType: 'any' },
+  { name: 'booleans', desc: 'Select only booleans', inputType: 'any' },
+  { name: 'numbers', desc: 'Select only numbers', inputType: 'any' },
+  { name: 'strings', desc: 'Select only strings', inputType: 'any' },
+  { name: 'nulls', desc: 'Select only nulls', inputType: 'any' },
+  { name: 'values', desc: 'Select only non-null values', inputType: 'any' },
+  { name: 'scalars', desc: 'Select only scalar values', inputType: 'any' },
+];
+
+// 입력 타입 배지 — 색은 하드코딩하지 않고 CSS 클래스(`.ty-*`)로만 구분한다.
+// 단일 앰버 액센트 체계라 색을 10종 쓰지 않는다(`AutocompletePopup.svelte` 참고).
+export interface InputTypeInfo {
+  label: string
+  cls: string
+}
+
+export const INPUT_TYPE_INFO: Record<string, InputTypeInfo> = {
+  'any': { label: 'any', cls: 'ty-any' },
+  'array': { label: 'array', cls: 'ty-array' },
+  'object': { label: 'object', cls: 'ty-object' },
+  'string': { label: 'string', cls: 'ty-string' },
+  'number': { label: 'number', cls: 'ty-number' },
+  'item': { label: 'item', cls: 'ty-item' },
+  'array|object': { label: 'array|obj', cls: 'ty-array' },
+  'array|string': { label: 'arr|str', cls: 'ty-array' },
+  'field': { label: 'field', cls: 'ty-field' },
+  'variable': { label: 'var', cls: 'ty-variable' },
+};
+
+// Extract keys from JSON data for autocomplete
+export function extractKeys(data: unknown, maxDepth = 8): string[] {
+  const keys = new Set<string>();
+
+  function traverse(obj: unknown, path: string, depth: number, isRoot = false): void {
+    if (depth > maxDepth || obj === null || obj === undefined) return;
+
+    if (Array.isArray(obj)) {
+      // For arrays, traverse first few items to find common structure
+      const sampleSize = Math.min(obj.length, 5);
+      for (let i = 0; i < sampleSize; i++) {
+        // Skip [] prefix for root-level arrays to match context keys
+        traverse((obj as unknown[])[i], isRoot ? path : path + '[]', depth, false);
+      }
+    } else if (typeof obj === 'object') {
+      const rec = obj as Record<string, unknown>;
+      for (const key of Object.keys(rec)) {
+        const newPath = path ? `${path}.${key}` : key;
+        keys.add(newPath);
+        traverse(rec[key], newPath, depth + 1, false);
+      }
+    }
+  }
+
+  traverse(data, '', 0, true);
+  return Array.from(keys) as string[];
+}
+
+/**
+ * Create an inline Web Worker for key extraction
+ * Uses Blob URL for single-file build compatibility
+ * @returns {Worker} Web Worker instance
+ */
+export function createKeyExtractionWorker() {
+  const workerCode = `
+    // Key extraction worker - BFS traversal with progress reporting
+    const MAX_DEPTH = 8;
+    const SAMPLE_SIZE = 5;
+    const PROGRESS_INTERVAL = 100; // ms
+
+    self.onmessage = function(e) {
+      const { type, id, jsonString, options = {} } = e.data;
+
+      if (type !== 'extract') return;
+
+      const maxDepth = options.maxDepth || MAX_DEPTH;
+      const sampleSize = options.sampleSize || SAMPLE_SIZE;
+      const startTime = performance.now();
+
+      try {
+        const data = JSON.parse(jsonString);
+        const keys = new Set();
+        let lastProgressTime = startTime;
+        let currentDepth = 0;
+
+        // BFS queue: [{obj, path, depth}]
+        const queue = [{ obj: data, path: '', depth: 0 }];
+
+        while (queue.length > 0) {
+          const { obj, path, depth } = queue.shift();
+
+          // Track max depth reached
+          if (depth > currentDepth) {
+            currentDepth = depth;
+
+            // Report progress periodically (키 수만 전송, 전체 배열 복사 방지)
+            const now = performance.now();
+            if (now - lastProgressTime > PROGRESS_INTERVAL) {
+              lastProgressTime = now;
+              self.postMessage({
+                type: 'progress',
+                id: id,
+                currentDepth: currentDepth,
+                keysFound: keys.size
+              });
+            }
+          }
+
+          if (depth > maxDepth || obj === null || obj === undefined) continue;
+
+          if (Array.isArray(obj)) {
+            // Sample array elements
+            const len = Math.min(obj.length, sampleSize);
+            for (let i = 0; i < len; i++) {
+              if (obj[i] !== null && typeof obj[i] === 'object') {
+                queue.push({ obj: obj[i], path: path + '[]', depth: depth });
+              }
+            }
+          } else if (typeof obj === 'object') {
+            const objKeys = Object.keys(obj);
+            for (const key of objKeys) {
+              const newPath = path ? path + '.' + key : key;
+              keys.add(newPath);
+
+              const value = obj[key];
+              if (value !== null && typeof value === 'object') {
+                queue.push({ obj: value, path: newPath, depth: depth + 1 });
+              }
+            }
+          }
+        }
+
+        const endTime = performance.now();
+        self.postMessage({
+          type: 'result',
+          id: id,
+          keys: Array.from(keys),
+          stats: {
+            depth: currentDepth,
+            keyCount: keys.size,
+            timeMs: Math.round(endTime - startTime)
+          }
+        });
+      } catch (error) {
+        self.postMessage({
+          type: 'error',
+          id: id,
+          message: error.message
+        });
+      }
+    };
+  `;
+
+  const blob = new Blob([workerCode], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url) as BlobWorker;
+
+  // Store URL for cleanup
+  worker._blobUrl = url;
+
+  return worker;
+}
+
+/**
+ * Terminate worker and clean up blob URL
+ */
+export function terminateKeyExtractionWorker(worker: BlobWorker | null) {
+  if (worker) {
+    worker.terminate();
+    if (worker._blobUrl) {
+      URL.revokeObjectURL(worker._blobUrl);
+    }
+  }
+}
+
+// ─── jq 실행 워커 ────────────────────────────────────────────────────────────
+
+export const JQ_CDN_BASE = 'https://cdn.jsdelivr.net/npm/jq-web@0.6.2/';
+export const JQ_CDN_JS = JQ_CDN_BASE + 'jq.js';
+
+// 워커 코드 문자열 — ${JQ_CDN_BASE}, ${JQ_CDN_JS}는 이 파일 평가 시점에 보간됨
+const JQ_WORKER_CODE = `
+  // jq-web 0.6.2는 MODULARIZE 빌드라 팩토리를 인자 없이 스스로 호출한다
+  // (파일 끝의 jq = jq().then(...)). 그래서 self.Module 로는 locateFile 을 넣을 수 없고,
+  // wasm 경로는 오로지 emscripten 의 scriptDirectory 로만 정해진다.
+  // blob: 워커에서는 self.location.href 가 blob: 이라 scriptDirectory 가 빈 문자열이 되고
+  // 'jq.wasm' 상대 경로를 못 찾는다. emscripten 은 전역 __filename 이 있으면 그것을
+  // _scriptName 으로 쓰므로, CDN 절대 URL 을 여기에 심어 우회한다.
+  self.__filename = '${JQ_CDN_JS}';
+
+  // Emscripten 과 jq-web 래퍼가 stderr 를 console 로 흘린다. e2e 는 콘솔 출력 1건에도
+  // 실패하므로 이 워커 안에서만 삼킨다(에러는 postMessage 로 따로 올린다).
+  self.console = Object.assign({}, self.console, {
+    log: function() {}, info: function() {}, warn: function() {}, error: function() {}, debug: function() {}
+  });
+
+  importScripts('${JQ_CDN_JS}');
+
+  let jqInstance = null;
+  let initError = null;
+
+  // ── 입력 캐싱: setInput으로 전송된 입력을 보관 ──
+  var cachedInput = null;   // raw JSON 문자열
+  var cachedParsed = null;  // JSON.parse 결과 (재파싱 방지)
+
+  // ── 결과 캐싱: 마지막 jq 실행 결과를 보관 (formatResult에서 사용) ──
+  var cachedResult = null;
+
+  // ── CSV 변환 함수 (Worker 내부 인라인) ──
+  var CSV_MAX_DEPTH = 10;
+  function csvFlatten(obj, prefix, depth) {
+    var flattened = {};
+    for (var key in obj) {
+      var value = obj[key];
+      var newKey = prefix ? prefix + '_' + key : key;
+      if (value === null || value === undefined) {
+        flattened[newKey] = '';
+      } else if (typeof value === 'object' && !Array.isArray(value)) {
+        if (depth < CSV_MAX_DEPTH) {
+          var sub = csvFlatten(value, newKey, depth + 1);
+          for (var sk in sub) flattened[sk] = sub[sk];
+        } else {
+          flattened[newKey] = JSON.stringify(value);
+        }
+      } else if (Array.isArray(value)) {
+        flattened[newKey] = JSON.stringify(value);
+      } else {
+        flattened[newKey] = value;
+      }
+    }
+    return flattened;
+  }
+
+  function workerJsonToMatrix(data) {
+    var wasArray = Array.isArray(data);
+    if (!wasArray) data = [data];
+    if (data.length === 0) return { header: [], rows: [] };
+
+    var flatRows = [];
+    for (var i = 0; i < data.length; i++) flatRows.push(csvFlatten(data[i], '', 0));
+
+    var keySet = {};
+    for (var ri = 0; ri < flatRows.length; ri++) {
+      var rk = Object.keys(flatRows[ri]);
+      for (var ki = 0; ki < rk.length; ki++) keySet[rk[ki]] = true;
+    }
+    var header = Object.keys(keySet).sort();
+
+    var rows = [];
+    for (var bi = 0; bi < flatRows.length; bi++) {
+      var line = [];
+      for (var ci = 0; ci < header.length; ci++) {
+        var val = flatRows[bi][header[ci]];
+        line.push(val !== undefined ? String(val) : '');
+      }
+      rows.push(line);
+    }
+    return { header: header, rows: rows };
+  }
+
+  // 워커 시작 시 즉시 초기화 (첫 쿼리 지연 방지)
+  const initPromise = (function() {
+    try {
+      var jqRef = (typeof self.jq !== 'undefined') ? self.jq : null;
+      if (!jqRef) throw new Error('jq not available after importScripts');
+      var p = jqRef.promised ? jqRef.promised : jqRef;
+      return Promise.resolve(p).then(function(inst) {
+        jqInstance = inst;
+        self.postMessage({ type: 'ready' });
+      }).catch(function(err) {
+        initError = err;
+        self.postMessage({ type: 'init_error', message: err.message });
+      });
+    } catch(err) {
+      initError = err;
+      self.postMessage({ type: 'init_error', message: err.message });
+      return Promise.reject(err);
+    }
+  })();
+
+  self.onmessage = function(e) {
+    var msg = e.data;
+
+    // ── setInput: 입력 데이터 캐싱 (변경 시에만 전송됨) ──
+    if (msg.type === 'setInput') {
+      cachedInput = msg.input;
+      cachedParsed = null; // 파싱 캐시 무효화
+      cachedResult = null; // 결과 캐시 무효화
+      return;
+    }
+
+    // ── formatResult: 캐싱된 결과로 포맷 변환 ──
+    if (msg.type === 'formatResult') {
+      if (cachedResult === null) {
+        self.postMessage({ type: 'formatted', id: msg.id, error: 'No cached result' });
+        return;
+      }
+      try {
+        if (msg.format === 'json') {
+          var jsonText = JSON.stringify(cachedResult, null, 2);
+          self.postMessage({ type: 'formatted', id: msg.id, format: 'json', resultText: jsonText });
+        } else if (msg.format === 'csv') {
+          var matrix = workerJsonToMatrix(cachedResult);
+          self.postMessage({ type: 'formatted', id: msg.id, format: 'csv', header: matrix.header, rows: matrix.rows });
+        }
+      } catch(err) {
+        self.postMessage({ type: 'formatted', id: msg.id, error: err.message });
+      }
+      return;
+    }
+
+    if (msg.type !== 'execute') return;
+    var id = msg.id, query = msg.query;
+    // cache === false: 자동완성 컨텍스트 실행 — 본 실행의 마지막 결과(cachedResult)를 덮어쓰지 않는다
+    var keepResult = msg.cache !== false;
+
+    // 입력은 cachedInput 사용 (없으면 msg.input 폴백)
+    var input = cachedInput !== null ? cachedInput : msg.input;
+    if (input === null || input === undefined) {
+      self.postMessage({ type: 'error', id: id, message: 'No input data' });
+      return;
+    }
+
+    initPromise.then(function() {
+      if (initError || !jqInstance) {
+        self.postMessage({ type: 'error', id: id,
+          message: 'Worker init failed: ' + (initError ? initError.message : 'no instance') });
+        return;
+      }
+      var startTime = performance.now();
+      try {
+        // 캐싱된 파싱 결과 사용 (입력이 같으면 재파싱 방지)
+        if (cachedParsed === null) {
+          cachedParsed = JSON.parse(input);
+        }
+        var parsed = cachedParsed;
+
+        Promise.resolve(jqInstance.json(parsed, query)).then(function(result) {
+          if (keepResult) cachedResult = result;
+          var text = JSON.stringify(result, null, 2);
+          var encoded = new TextEncoder().encode(text);
+          self.postMessage(
+            { type: 'result', id: id, resultBuffer: encoded.buffer, executionTime: performance.now() - startTime },
+            [encoded.buffer]
+          );
+        }).catch(function(err) {
+          var t = performance.now() - startTime;
+          if (err.message && err.message.includes('Unexpected end of JSON input')) {
+            if (keepResult) cachedResult = [];
+            self.postMessage({ type: 'result', id: id, resultBuffer: new ArrayBuffer(0), executionTime: t });
+          } else {
+            self.postMessage({ type: 'error', id: id, message: err.message });
+          }
+        });
+      } catch(err) {
+        var t2 = performance.now() - startTime;
+        if (err.message && err.message.includes('Unexpected end of JSON input')) {
+          if (keepResult) cachedResult = [];
+          self.postMessage({ type: 'result', id: id, resultBuffer: new ArrayBuffer(0), executionTime: t2 });
+        } else {
+          self.postMessage({ type: 'error', id: id, message: err.message });
+        }
+      }
+    }).catch(function(err) {
+      self.postMessage({ type: 'error', id: id,
+        message: 'Worker initialization error: ' + err.message });
+    });
+  };
+`;
+
+/**
+ * jq 쿼리 실행용 인라인 Web Worker 생성.
+ * Blob URL 방식으로 file:// 프로토콜 및 단일 파일 빌드와 호환.
+ * @returns {Worker}
+ */
+export function createJqWorker(): BlobWorker {
+  const blob = new Blob([JQ_WORKER_CODE], { type: 'application/javascript' });
+  const url = URL.createObjectURL(blob);
+  const worker = new Worker(url) as BlobWorker;
+  worker._blobUrl = url;
+  return worker;
+}
+
+/**
+ * jq 워커를 종료하고 blob URL을 해제한다.
+ */
+export function terminateJqWorker(worker: BlobWorker | null): void {
+  if (worker) {
+    worker.terminate();
+    if (worker._blobUrl) URL.revokeObjectURL(worker._blobUrl);
+  }
+}
+
+/**
+ * Get the expected input type for a function
+ * @param {string} functionName - Name of the jq function
+ * @returns {string} Input type ('any', 'array', 'object', 'item', etc.)
+ */
+export function getFunctionInputType(functionName: string): string {
+  const func = JQ_FUNCTIONS.find(f => f.name === functionName);
+  return func?.inputType || 'any';
+}
+
+export function filterFunctions(prefix: string): JqFunctionInfo[] {
+  if (!prefix) return [];
+
+  const lower = prefix.toLowerCase();
+  return JQ_FUNCTIONS
+    .filter(fn => fn.name.toLowerCase().startsWith(lower))
+    .slice(0, 10); // Limit to 10 suggestions
+}

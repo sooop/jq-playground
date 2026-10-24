@@ -1,0 +1,378 @@
+/*
+ * 디자인 방향: "정밀 계측기"
+ *
+ * 그래파이트 베이스 + 앰버 신호색. 데이터 그리드(셀·헤더·거터)는 모노스페이스로 계측 장비의
+ * 성격을 유지하고, 버튼/라벨/다이얼로그 등 일반 UI 텍스트는 가독성 좋은 UI 폰트를 쓴다.
+ * 단일 HTML/오프라인 제약으로 웹폰트는 쓰지 않고, 로컬에 설치되어 있다고 가정한 폰트만 나열한다.
+ */
+
+:root {
+  /* 로컬 폰트만 사용 (외부 요청 0건 유지) */
+  --font-ui: 'Pretendard', 'Pretendard Variable', -apple-system, 'Segoe UI', system-ui,
+    sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Cascadia Code', 'Cascadia Mono', 'SF Mono',
+    'Menlo', 'DejaVu Sans Mono', 'Consolas', ui-monospace, monospace;
+
+  --row-h: 28px;
+  --header-h: 30px;
+  --gutter-w: 62px;
+  --toolbar-h: 46px;
+  --tabbar-h: 34px;
+  --status-h: 30px;
+
+  --fs-cell: 12.5px;
+  --fs-label: 11px;
+  --fs-ui: 12px;
+
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur: 130ms;
+
+  /*
+   * 겹침 순서 — 값은 여기서만 정한다. 팝오버(앵커에 붙는 것) < 컨텍스트 메뉴 < 모달 < 토스트
+   * < 시스템 확인창(alert/confirm/prompt — 모달 위에서도 떠야 한다). 컴포넌트는 이 토큰만 쓰고,
+   * 같은 대역 안에서 스크림/패널처럼 두 층이 필요하면 `calc(var(--z-…) + 1)`로 만든다.
+   */
+  --z-popover: 400;
+  --z-menu: 500;
+  --z-modal: 1000;
+  --z-toast: 1500;
+  --z-system-dialog: 2000;
+
+  color-scheme: dark;
+
+  /* --- 다크 (기본) --- */
+  --bg: #0d0f12;
+  --bg-raised: #14171c;
+  --bg-header: #191d23;
+  --bg-gutter: #111419;
+  --bg-hover: #1b2028;
+  --bg-zebra: rgba(255, 255, 255, 0.026);
+  --bg-overlay: rgba(6, 7, 9, 0.72);
+
+  --border: #23282f;
+  --border-soft: #1c2027;
+  --border-strong: #363e49;
+
+  --text: #dfe4ea;
+  --text-dim: #8b949e;
+  --text-faint: #5b636d;
+
+  --accent: #f2a33c;
+  --accent-text: #100c04;
+  --accent-soft: rgba(242, 163, 60, 0.14);
+  --accent-line: rgba(242, 163, 60, 0.45);
+
+  --hit-bg: rgba(242, 163, 60, 0.26);
+  --hit-text: #ffd79a;
+
+  --sel: #4d94f8;
+  --sel-bg: rgba(77, 148, 248, 0.14);
+  --sel-line: rgba(77, 148, 248, 0.9);
+  --sel-head: rgba(77, 148, 248, 0.2);
+
+  --danger: #f2555a;
+  --ok: #46c08a;
+
+  /*
+   * 기능적 액센트 — 장식이 아니라 상태를 구분하기 위한 색이다.
+   * 앰버(정렬)와 청록(필터)이 겹쳐도 각각 무슨 상태인지 읽히는 것이 목적.
+   */
+  --c-num: #4ecdc4; /* 숫자 칼럼 */
+  --c-date: #b48ef0; /* 날짜 칼럼 */
+  --c-filter: #57c98b; /* 칼럼 필터 활성 */
+  --c-hide: #e0708a; /* 숨김 상태 */
+
+  /*
+   * 찾기. 스마트 필터 강조(앰버)와 반드시 달라야 한다 — 둘이 동시에 켜져 있을 때
+   * 어느 쪽 매치인지 구분되지 않으면 쓸모가 없다.
+   */
+  --find-line: #4bb3d4;
+  --find-bg: rgba(75, 179, 212, 0.3);
+  --find-text: #cdeef9;
+  --find-on-text: #05202b;
+  --find-cur: #7ee0ff;
+
+  /* 셀 본문 색조 — 판독성이 우선이므로 본문 색에서 살짝 기울인 정도 */
+  --text-num: #c8e6e2;
+  --text-date: #ddd2f2;
+
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 28px -6px rgba(0, 0, 0, 0.65);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #fbfaf7;
+  --bg-raised: #ffffff;
+  --bg-header: #f3f1ec;
+  --bg-gutter: #f6f4f0;
+  --bg-hover: #eeebe4;
+  --bg-zebra: rgba(24, 20, 12, 0.028);
+  --bg-overlay: rgba(250, 249, 246, 0.75);
+
+  --border: #e0dbd0;
+  --border-soft: #eae6dd;
+  --border-strong: #c3bbaa;
+
+  --text: #1b1d20;
+  --text-dim: #63605a;
+  --text-faint: #97928a;
+
+  --accent: #b3610a;
+  --accent-text: #fffaf2;
+  --accent-soft: rgba(179, 97, 10, 0.1);
+  --accent-line: rgba(179, 97, 10, 0.4);
+
+  --hit-bg: rgba(226, 154, 27, 0.32);
+  --hit-text: #4d2a00;
+
+  --sel: #1f6feb;
+  --sel-bg: rgba(31, 111, 235, 0.1);
+  --sel-line: rgba(31, 111, 235, 0.9);
+  --sel-head: rgba(31, 111, 235, 0.16);
+
+  --danger: #c92a2f;
+  --ok: #157f52;
+
+  --c-num: #0c7b70;
+  --c-date: #6b3fb0;
+  --c-filter: #1c8a52;
+  --c-hide: #b83a5c;
+
+  --find-line: #0d7ea6;
+  --find-bg: rgba(13, 126, 166, 0.24);
+  --find-text: #05323f;
+  --find-on-text: #ffffff;
+  --find-cur: #075e7d;
+
+  --text-num: #17423e;
+  --text-date: #35275c;
+
+  --shadow-pop: 0 1px 2px rgba(60, 50, 30, 0.09), 0 8px 26px -6px rgba(60, 50, 30, 0.22);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  height: 100%;
+}
+
+/* 얇고 존재감 없는 스크롤바 — 데이터에 시선을 남긴다 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* --- 공용 컴포넌트 클래스 --- */
+
+/* 모드 툴바 — 세 모드가 같은 높이·배경의 툴바 행을 쓴다 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  height: var(--toolbar-h);
+  padding: 0 9px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border);
+}
+
+/* 창 전체 드롭 안내 — 페인을 덮는 점선 상자 */
+.drop-hint {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  border: 2px dashed var(--accent);
+  color: var(--accent);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  z-index: 30;
+}
+
+/* 툴바/메뉴의 기본 버튼 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 5px;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.btn.outline {
+  border-color: var(--border);
+}
+.btn.primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-text);
+  filter: brightness(1.08);
+}
+.btn.icon {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+/* 토글 상태가 켜진 버튼 */
+.btn.on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+/* 파괴적 액션 — 확인창의 danger 톤과 같은 색 */
+.btn.danger {
+  color: var(--danger);
+}
+.btn.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.btn.primary.danger {
+  background: var(--danger);
+  color: #fff;
+}
+.btn.primary.danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* 대문자 레터스페이스 라벨 — 계측기 눈금 같은 성격 */
+.label {
+  font-size: var(--fs-label);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.kbd {
+  display: inline-block;
+  min-width: 17px;
+  padding: 1px 4px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  text-align: center;
+}
+
+.pop {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow-pop);
+}
+
+.field {
+  height: 28px;
+  padding: 0 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text);
+  transition: border-color var(--dur) var(--ease);
+}
+.field:focus {
+  outline: none;
+  border-color: var(--accent-line);
+}
+.field::placeholder {
+  color: var(--text-faint);
+}
+
+.divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

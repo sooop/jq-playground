@@ -5,15 +5,15 @@ import {
   splitTokensByPipe,
   computeNesting,
   tokenIndexAtCursor,
-} from '../src/utils/jq-tokenizer';
+} from '../src/modes/jq/utils/jq-tokenizer';
 
 /** 공백 제거 후 토큰 타입만 추출 */
-function types(input) {
+function types(input: string) {
   return stripTrivia(tokenize(input)).map(t => t.type);
 }
 
 /** 공백 제거 후 토큰 값만 추출 */
-function values(input) {
+function values(input: string) {
   return stripTrivia(tokenize(input)).map(t => t.value);
 }
 

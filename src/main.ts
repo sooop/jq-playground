@@ -1,5 +1,8 @@
-import './styles/main.css';
-import { App } from './App';
+import { mount } from 'svelte'
+import App from './App.svelte'
+import './app.css'
 
-const app = new App();
-app.init();
+const target = document.getElementById('app')
+if (!target) throw new Error('#app 요소를 찾을 수 없습니다')
+
+export default mount(App, { target })
