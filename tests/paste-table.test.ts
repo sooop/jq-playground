@@ -334,3 +334,35 @@ describe('parsePastedTable - 기타', () => {
     expect(t?.rows[49_999]).toEqual(['49999', 'n49999', '99998'])
   })
 })
+
+describe('parsePastedTable - 헤더 선언형 불릿 목록', () => {
+  it('첫 항목의 열 이름과 들여쓰기 깊이로 행·열을 가른다', () => {
+    const text = ['- 헤더: 이름, 나이, 부서', '- 홍길동', '  - 30', '  - 영업', '- 김철수', '  - 25', '  - 개발'].join('\n')
+    expect(parsePastedTable(text)).toEqual({
+      kind: 'mdlist',
+      header: ['이름', '나이', '부서'],
+      rows: [
+        ['홍길동', '30', '영업'],
+        ['김철수', '25', '개발'],
+      ],
+    })
+  })
+
+  it('칸이 모자라면 빈 칸으로 채우고, 빈 항목은 빈 값이다', () => {
+    const text = ['- header: a, b, c', '- 1', '  - 2', '- 3', '  -', '  - 5'].join('\r\n')
+    expect(parsePastedTable(text)?.rows).toEqual([
+      ['1', '2', ''],
+      ['3', '', '5'],
+    ])
+  })
+
+  it('칸이 헤더보다 많거나 들여쓴 항목이 먼저 나오면 인식하지 않는다', () => {
+    expect(parsePastedTable(['- 헤더: a, b', '- 1', '  - 2', '  - 3'].join('\n'))).toBeNull()
+    expect(parsePastedTable(['- 헤더: a, b', '  - 1', '- 2'].join('\n'))).toBeNull()
+  })
+
+  it('레코드형(이름: 값) 목록은 그대로 레코드형으로 읽는다', () => {
+    const t = parsePastedTable(['- 이름: 가', '  나이: 1', '- 이름: 나', '  나이: 2'].join('\n'))
+    expect(t?.header).toEqual(['이름', '나이'])
+  })
+})

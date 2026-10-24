@@ -1,5 +1,9 @@
 /** Worker with a blob URL attached for cleanup. */
-export type BlobWorker = Worker & { _blobUrl: string };
+import { JQ_CDN_JS, type JqAssets } from './jq-assets';
+
+export { JQ_CDN_BASE, JQ_CDN_JS } from './jq-assets';
+
+export type BlobWorker = Worker & { _blobUrl: string; _assetUrls?: string[] };
 
 /** 자동완성 후보로 쓰이는 jq 내장 함수 기술. */
 export interface JqFunctionInfo {
@@ -362,9 +366,6 @@ export function terminateKeyExtractionWorker(worker: BlobWorker | null) {
 
 // ─── jq 실행 워커 ────────────────────────────────────────────────────────────
 
-export const JQ_CDN_BASE = 'https://cdn.jsdelivr.net/npm/jq-web@0.6.2/';
-export const JQ_CDN_JS = JQ_CDN_BASE + 'jq.js';
-
 // 워커 코드 문자열 — ${JQ_CDN_BASE}, ${JQ_CDN_JS}는 이 파일 평가 시점에 보간됨
 const JQ_WORKER_CODE = `
   // jq-web 0.6.2는 MODULARIZE 빌드라 팩토리를 인자 없이 스스로 호출한다
@@ -381,7 +382,17 @@ const JQ_WORKER_CODE = `
     log: function() {}, info: function() {}, warn: function() {}, error: function() {}, debug: function() {}
   });
 
-  importScripts('${JQ_CDN_JS}');
+  // 캐시된 에셋이 있으면(createJqWorker 가 blob URL 을 심어 준다) 네트워크를 쓰지 않는다.
+  // emscripten 은 wasm 을 fetch(<scriptDirectory>/jq.wasm) 로 받으므로, 그 요청만 blob 으로 돌린다.
+  if (self.__jqWasmUrl) {
+    var origFetch = self.fetch.bind(self);
+    self.fetch = function(input, init) {
+      var u = typeof input === 'string' ? input : (input && input.url) || String(input);
+      if (u.indexOf('jq.wasm') >= 0) return origFetch(self.__jqWasmUrl);
+      return origFetch(input, init);
+    };
+  }
+  importScripts(self.__jqJsUrl || '${JQ_CDN_JS}');
 
   let jqInstance = null;
   let initError = null;
@@ -560,11 +571,21 @@ const JQ_WORKER_CODE = `
  * Blob URL 방식으로 file:// 프로토콜 및 단일 파일 빌드와 호환.
  * @returns {Worker}
  */
-export function createJqWorker(): BlobWorker {
-  const blob = new Blob([JQ_WORKER_CODE], { type: 'application/javascript' });
+export function createJqWorker(assets?: JqAssets): BlobWorker {
+  const assetUrls: string[] = [];
+  let header = '';
+  if (assets) {
+    const js = URL.createObjectURL(new Blob([assets.js], { type: 'application/javascript' }));
+    const wasm = URL.createObjectURL(new Blob([assets.wasm], { type: 'application/wasm' }));
+    assetUrls.push(js, wasm);
+    header = `self.__jqJsUrl = ${JSON.stringify(js)}; self.__jqWasmUrl = ${JSON.stringify(wasm)};
+`;
+  }
+  const blob = new Blob([header + JQ_WORKER_CODE], { type: 'application/javascript' });
   const url = URL.createObjectURL(blob);
   const worker = new Worker(url) as BlobWorker;
   worker._blobUrl = url;
+  worker._assetUrls = assetUrls;
   return worker;
 }
 
@@ -575,6 +596,7 @@ export function terminateJqWorker(worker: BlobWorker | null): void {
   if (worker) {
     worker.terminate();
     if (worker._blobUrl) URL.revokeObjectURL(worker._blobUrl);
+    for (const u of worker._assetUrls ?? []) URL.revokeObjectURL(u);
   }
 }
 

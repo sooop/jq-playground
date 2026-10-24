@@ -9,6 +9,7 @@
  *    워커 전용 모드에서 자동완성 컨텍스트 추론이 조용히 죽던 버그(원본 jq-engine.ts:257).
  *  - `console.*` 출력 0 — 실패는 상태(`failed`)와 `lastError` 로만 알린다.
  */
+import { loadJqAssets, type JqAssets } from './jq-assets'
 import { createJqWorker, JQ_CDN_BASE, JQ_CDN_JS, terminateJqWorker } from './jq-functions'
 import type { BlobWorker } from './jq-functions'
 import { loadScript } from '../../../lib/util/cdn'
@@ -85,8 +86,16 @@ class JqEngine {
   }
 
   async #doInit(): Promise<void> {
+    // 캐시(IndexedDB) → CDN 순으로 에셋을 준비한다. 둘 다 실패하면 워커는 CDN 직접 로드를 시도하고,
+    // 그것도 안 되면 아래 폴백까지 가서 최종적으로 'failed' 가 된다.
+    let assets: JqAssets | undefined
     try {
-      await this.#initWorker()
+      assets = await loadJqAssets()
+    } catch (e) {
+      this.lastError = errMessage(e)
+    }
+    try {
+      await this.#initWorker(assets)
       this.#state = 'ready'
       return
     } catch {
@@ -97,12 +106,12 @@ class JqEngine {
         this.#worker = null
       }
     }
-    await this.#initMainThread()
+    await this.#initMainThread(assets)
     this.#state = 'ready'
   }
 
   /** 워커를 만들고 `ready` 메시지를 기다린다. */
-  #initWorker(): Promise<void> {
+  #initWorker(assets?: JqAssets): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let settled = false
       let timer: ReturnType<typeof setTimeout> | undefined
@@ -116,7 +125,7 @@ class JqEngine {
 
       let worker: BlobWorker
       try {
-        worker = createJqWorker()
+        worker = createJqWorker(assets)
       } catch (e) {
         reject(new Error('jq 워커를 만들지 못했습니다: ' + errMessage(e)))
         return
@@ -155,7 +164,7 @@ class JqEngine {
   }
 
   /** 메인 스레드 폴백 — CDN 에서 jq-web 을 받아 `window.jq` 를 쓴다. */
-  async #initMainThread(): Promise<void> {
+  async #initMainThread(assets?: JqAssets): Promise<void> {
     // Emscripten 로그를 삼키고 wasm 경로를 CDN 절대 URL 로 고정한다
     const g = window as unknown as { Module?: Record<string, unknown> }
     g.Module = {
@@ -164,7 +173,26 @@ class JqEngine {
       printErr: () => {},
       locateFile: (f: string) => JQ_CDN_BASE + f,
     }
-    await loadScript(JQ_CDN_JS)
+    if (assets) {
+      // wasm 요청만 캐시된 blob 으로 돌린다(워커와 같은 방식) — 로드가 끝나면 fetch 를 원복한다
+      const wasmUrl = URL.createObjectURL(new Blob([assets.wasm], { type: 'application/wasm' }))
+      const jsUrl = URL.createObjectURL(new Blob([assets.js], { type: 'application/javascript' }))
+      const origFetch = window.fetch
+      window.fetch = (input, init) => {
+        const u = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+        return origFetch.call(window, u.includes('jq.wasm') ? wasmUrl : input, u.includes('jq.wasm') ? undefined : init)
+      }
+      try {
+        await loadScript(jsUrl)
+        if (typeof window.jq !== 'undefined') await (window.jq.promised ?? window.jq)
+      } finally {
+        window.fetch = origFetch
+        URL.revokeObjectURL(jsUrl)
+        URL.revokeObjectURL(wasmUrl)
+      }
+    } else {
+      await loadScript(JQ_CDN_JS)
+    }
     if (typeof window.jq === 'undefined') {
       throw new Error('jq-web 을 불러오지 못했습니다')
     }

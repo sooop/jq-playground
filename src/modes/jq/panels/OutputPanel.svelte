@@ -255,7 +255,7 @@
 
   <div class="panel-body">
     {#if jq.engine === 'loading'}
-      <p class="note">jq 엔진을 CDN에서 불러오는 중입니다…</p>
+      <p class="note">jq 엔진을 불러오는 중입니다… (처음 한 번만 CDN에서 받아 이 브라우저에 저장합니다)</p>
     {:else if jq.engine === 'failed'}
       <p class="note warn">
         jq 엔진을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 실행하세요.

@@ -40,7 +40,7 @@ export function parsePastedTable(text: string, html?: string): PastedTable | nul
   const box = parseBoxTable(lines)
   if (box) return box
 
-  const list = parseMdList(lines)
+  const list = parseMdListWithHeader(lines) ?? parseMdList(lines)
   if (list) return list
 
   const body = lines.join('\n')
@@ -425,6 +425,48 @@ function parseMdList(lines: string[]): PastedTable | null {
     return header.map((k) => m.get(k) ?? '')
   })
   return { kind: 'mdlist', header, rows }
+}
+
+// ---------------------------------------------------------------------------
+// 4-b. 헤더 선언형 불릿 목록 — 첫 항목이 열 이름을 나열하고, 들여쓰기 깊이로 행·열을 가른다
+//
+//   - 헤더: 이름, 나이, 부서
+//   - 홍길동          ← 최상위 항목 하나 = 행 하나 (첫 칸)
+//     - 30            ← 한 단계 안쪽 항목 = 그 행의 나머지 칸(순서대로)
+//     - 영업
+// ---------------------------------------------------------------------------
+
+const HEADER_LINE = /^[-*+][ \t]+(?:헤더|header|columns?|열)[ \t]*[:：][ \t]*(.*)$/i
+const BULLET = /^([ \t]*)[-*+](?:[ \t]+(.*))?$/
+
+function parseMdListWithHeader(lines: string[]): PastedTable | null {
+  const items = lines.filter((l) => l.trim() !== '')
+  if (items.length < 2) return null
+  const head = HEADER_LINE.exec(items[0].trimEnd())
+  if (!head) return null
+  const header = head[1].split(',').map((c) => c.trim())
+  if (header.length < 2 || header.every((c) => c === '')) return null
+
+  const rows: string[][] = []
+  let row: string[] | null = null
+  for (const raw of items.slice(1)) {
+    const m = BULLET.exec(raw.trimEnd())
+    if (!m) return null
+    const depth = m[1].replace(/\t/g, '  ').length
+    const value = (m[2] ?? '').trim()
+    if (depth === 0) {
+      row = [value]
+      rows.push(row)
+    } else if (row) {
+      row.push(value)
+    } else {
+      return null
+    }
+  }
+  if (rows.length === 0) return null
+  // 칸이 헤더보다 많으면 어느 열인지 알 수 없다 — 잘못 읽느니 인식하지 않는다. 모자라면 빈 칸으로 채운다.
+  if (rows.some((r) => r.length > header.length)) return null
+  return { kind: 'mdlist', header, rows: rows.map((r) => [...r, ...Array(header.length - r.length).fill('')]) }
 }
 
 /** `이름: 값` 한 줄을 나눈다. 분리는 첫 `: ` 에서만(값에 콜론이 있어도 된다). */

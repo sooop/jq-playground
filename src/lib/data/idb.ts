@@ -15,7 +15,7 @@
  */
 
 export const DB_NAME = 'xsv-playground'
-export const DB_VERSION = 1
+export const DB_VERSION = 2
 
 export interface StoreSpec {
   name: string
@@ -29,6 +29,8 @@ export const STORES = {
   jqInputHistory: 'jq.inputHistory',
   jqQueryHistory: 'jq.queryHistory',
   jqSavedQueries: 'jq.savedQueries',
+  /** CDN 에서 받은 jq 엔진(jq.js + jq.wasm) 캐시 — 키는 버전이 들어간 URL */
+  jqEngine: 'jq.engine',
 } as const
 
 export const SCHEMA: readonly StoreSpec[] = [
@@ -44,6 +46,7 @@ export const SCHEMA: readonly StoreSpec[] = [
   },
   { name: STORES.jqQueryHistory, keyPath: 'id', autoIncrement: true, indexes: [['by_time', 'timestamp']] },
   { name: STORES.jqSavedQueries, keyPath: 'id', autoIncrement: true, indexes: [['by_time', 'timestamp']] },
+  { name: STORES.jqEngine, keyPath: 'url' },
 ]
 
 export type DocStoreErrorCode = 'unavailable' | 'quota' | 'io'
