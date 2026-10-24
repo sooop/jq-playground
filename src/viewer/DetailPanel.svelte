@@ -83,7 +83,7 @@
     <div class="list">
       {#each fields as f (f.col)}
         {@const pj = rawJson ? null : pretty(f.value)}
-        <div class="field" class:active={f.col === activeSrcCol}>
+        <div class="item" class:active={f.col === activeSrcCol}>
           <div class="k">
             <span class="name" title={f.name}>{f.name}</span>
             <button class="cp" title="값 복사" onclick={() => void copy(f.value)}>복사</button>
@@ -145,11 +145,11 @@
     overflow: auto;
     padding: 4px 0 12px;
   }
-  .field {
+  .item {
     padding: 6px 12px;
     border-bottom: 1px solid var(--border-soft);
   }
-  .field.active {
+  .item.active {
     background: var(--sel-bg);
     box-shadow: inset 2px 0 0 var(--sel-line);
   }
@@ -174,8 +174,8 @@
     font-size: 10px;
     color: var(--text-dim);
   }
-  .field:hover .cp,
-  .field.active .cp {
+  .item:hover .cp,
+  .item.active .cp {
     opacity: 1;
   }
   .v {

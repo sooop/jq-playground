@@ -1,66 +1,67 @@
 # jq Playground
 
-A modern web-based playground for testing and learning jq queries with a clean, modular architecture.
-
-## Features
-
-- Real-time jq query execution
-- JSON and CSV output formats
-- Drag & drop file support
-- Query history and saved queries
-- Syntax cheatsheet
-- Tab key support in editors
-
-## Project Structure
+JSON에 jq 쿼리를 걸어 보고, 결과 표를 **전체 화면 CSV 뷰어**로 확대해 훑는 도구다.
+`dist/index.html` 파일 하나로 동작하며 데이터는 브라우저 밖으로 나가지 않는다.
+[workbench](../workbench)의 jq 모드를 Svelte 5로 이식하고 CSV 뷰어를 단독 기능으로 강화했다.
 
 ```
-jq-playground/
-├── src/
-│   ├── components/      # UI components
-│   │   ├── Header.js
-│   │   ├── InputPanel.js
-│   │   ├── QueryPanel.js
-│   │   ├── OutputPanel.js
-│   │   └── Modal.js
-│   ├── core/           # Core logic
-│   │   ├── jq-engine.js
-│   │   ├── csv-converter.js
-│   │   └── file-handler.js
-│   ├── utils/          # Utilities
-│   │   └── storage.js
-│   ├── styles/         # CSS modules
-│   │   ├── layout.css
-│   │   ├── components.css
-│   │   └── main.css
-│   ├── App.js
-│   └── main.js
-├── index.html
-├── vite.config.js
-└── package.json
-```
-
-## Development
-
-```bash
-# Install dependencies
 npm install
-
-# Start dev server
-npm run dev
-
-# Build for production
-npm run build
-
-# Preview production build
-npm run preview
+npm run dev        # 개발 서버
+npm run build      # → dist/index.html (단일 파일, 약 400KB)
+npm run check      # svelte-check
+npm test           # vitest
+npm run fixture    # fixtures/big.csv (10만 행 × 25열) 생성
 ```
 
-## Tech Stack
+## 구성
 
-- **Build Tool**: Vite
-- **jq Engine**: jq-web (WebAssembly)
-- **Architecture**: Vanilla JS with modular components
+- **jq 작업공간** — 입력 / 쿼리 / 출력 세 패널. 자동완성, JSON Transform(문자열화된 JSON 풀기·추출),
+  스니펫, 문법 참조, 입력·쿼리 히스토리, 저장한 쿼리.
+- **CSV 뷰어** — jq 출력이 표(CSV)일 때 출력 패널의 **확대** 버튼으로 연다. CSV/TSV 파일을 열거나
+  끌어다 놓아도, 메뉴의 "클립보드의 표를 뷰어로 열기"로도 열린다. 문서는 한 번에 하나이고 저장하지
+  않는다(새로고침하면 사라진다). 읽기 전용이다.
 
-## Legacy
+## CSV 뷰어 기능
 
-The original single-file implementation is available as `jq-playground.html` for reference.
+| 기능 | 설명 |
+|---|---|
+| 찾기 · 스마트 필터 | 전체 데이터 대상 찾기(정규식), 여러 열 조건을 조합하는 필터 바, 열별 필터 |
+| 정렬 · 열 순서 · 숨김 | 모두 **보기 상태**일 뿐이라 원본(jq 출력, 연 파일)에 영향이 없다 |
+| 행 상세 | 선택한 행을 `열 이름: 값` 목록으로 펼친다. JSON 문자열은 들여쓰기해서 보여 준다 |
+| 열 통계 | 보이는 행 기준 빈 값·고유값·최소/최대·합계/평균/중앙값·빈도 상위 |
+| 열 고정 · 행 높이 · 줄바꿈 | 선택한 열까지 왼쪽 고정, 행 높이 1/2/3/5줄(고정 높이 + 가상 스크롤) |
+| 내보내기 | 선택 영역·보이는 행·전체를 CSV, TSV, HTML, 서식 HTML, 박스 문자표, JSON, 마크다운 표/목록으로 |
+
+10만 행 × 25열(30MB) CSV를 약 1초에 열고 가상 스크롤로 훑는다.
+
+## 붙여넣기 인식
+
+jq 입력에 붙여넣거나 창에 붙여넣으면 아래 표 형식을 객체 배열 JSON으로 바꾼다.
+구분자 텍스트(CSV/TSV)는 "CSV로 파싱" 버튼으로 이어지는 기존 흐름을 따른다.
+
+- HTML `<table>` / 클립보드 HTML (엑셀·웹, rowspan·colspan 펼침)
+- 마크다운 파이프 표, 박스 문자표(`┌─┬─┐`, `+---+`)
+- 마크다운 불릿 목록: 레코드형(`- 이름: 값`) 또는 헤더 선언형
+  ```
+  - 헤더: 이름, 나이, 부서
+  - 홍길동
+    - 30
+    - 영업
+  ```
+
+## 네트워크
+
+jq 엔진(`jq-web@0.6.2`의 `jq.js` + `jq.wasm`, 약 2.9MB)은 최종 HTML에 담지 않고 **처음 쓸 때 CDN에서
+받아 IndexedDB에 저장**한다. 이후에는 오프라인에서도 동작한다(버전이 바뀌면 다시 받는다). 뷰어와
+붙여넣기 변환은 네트워크를 전혀 쓰지 않는다.
+
+## 구조
+
+```
+src/
+├─ App.svelte            jq 작업공간 위에 뷰어를 겹치는 셸
+├─ shell/                파일 종류 판정, 셸 상태(뷰어 문서), 테마
+├─ viewer/               Viewer, 행 상세·열 통계 패널, 열 통계 계산
+├─ modes/jq/             jq 작업공간(패널, 엔진·워커, 자동완성, Transform)
+└─ lib/                  data(데이터셋·뷰·선택·찾기·내보내기), parse(CSV·붙여넣기·형식), ui(그리드 등)
+```

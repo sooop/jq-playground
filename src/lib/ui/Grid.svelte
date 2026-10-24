@@ -153,6 +153,14 @@
     return false
   }
 
+  /**
+   * 줄바꿈 모드가 아니면 셀 안의 줄바꿈을 `↵`로 바꿔 한 줄로 보여 준다 — 그대로 두면 2번째 줄부터가
+   * 행 경계 밖으로 비어져 나와 위아래 행에 글자 조각이 겹쳐 보인다. 화면 표시에만 쓰고 데이터는 그대로다.
+   */
+  function oneLine(t: string): string {
+    return wrap || !t.includes('\n') ? t : t.replace(/\r?\n/g, '↵')
+  }
+
   const matcher = $derived(view.matcher)
   const highlighting = $derived(matcher.kind !== 'empty' && !(matcher.kind === 'regex' && !matcher.re))
 
@@ -959,7 +967,7 @@
         <div class="tr" class:odd={r % 2 === 1} style:top="{r * ROW_H}px">
           {#each colIdx as c (c)}
             {@const srcCol = view.srcCol(c)}
-            {@const text = ds.cell(src, srcCol)}
+            {@const text = oneLine(ds.cell(src, srcCol))}
             <div
               class="td"
               data-type={ds.colTypes[srcCol] ?? 'string'}
@@ -1294,8 +1302,9 @@
     z-index: 2;
     background: var(--bg);
   }
+  /* 줄무늬 색은 반투명이라 그대로 쓰면 뒤로 스크롤되는 셀이 비친다 — 불투명 바탕 위에 겹친다 */
   .tr.odd .td.frozen {
-    background: var(--bg-zebra);
+    background: linear-gradient(var(--bg-zebra), var(--bg-zebra)), var(--bg);
   }
   .th.frozen {
     z-index: 2;
