@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Dataset } from '../data/dataset.svelte'
-  import { buildMatrix } from '../data/export'
+  import { buildMatrix, effectiveOptions, isDelimitedFormat } from '../data/export'
   import type { SelectionStore } from '../data/selection.svelte'
   import type { ExportFormat, ExportOptions, ExportScope, ExportTarget } from '../data/types'
   import type { View } from '../data/view.svelte'
@@ -40,7 +40,7 @@
   /** 선택한 범위의 실제 크기 미리보기 */
   const preview = $derived.by(() => {
     void ds.version
-    const { matrix, headerRow } = buildMatrix(ds, view, sel, o)
+    const { matrix, headerRow } = buildMatrix(ds, view, sel, effectiveOptions(o))
     return {
       rows: Math.max(0, matrix.length - (headerRow ? 1 : 0)),
       cols: matrix[0]?.length ?? 0,
@@ -70,10 +70,17 @@
     },
   ])
 
-  const formats: { v: ExportFormat; label: string }[] = [
-    { v: 'csv', label: 'CSV' },
-    { v: 'tsv', label: 'TSV' },
+  const formats: { v: ExportFormat; label: string; title: string }[] = [
+    { v: 'csv', label: 'CSV', title: '쉼표 구분 텍스트' },
+    { v: 'tsv', label: 'TSV', title: '탭 구분 텍스트' },
+    { v: 'html', label: 'HTML', title: '서식 없는 <table> 마크업 (.html)' },
+    { v: 'htmlrich', label: 'HTML 서식', title: '테두리·헤더 굵게 포함 (.html / 클립보드는 Excel 붙여넣기용)' },
+    { v: 'box', label: '박스', title: '박스 문자 표 (.txt)' },
+    { v: 'json', label: 'JSON', title: '객체 배열(헤더가 키) 또는 배열의 배열 (.json)' },
+    { v: 'mdtable', label: 'MD 표', title: '마크다운 파이프 표 (.md)' },
+    { v: 'mdlist', label: 'MD 목록', title: '마크다운 불릿 목록, 레코드당 한 블록 (.md)' },
   ]
+  const delimited = $derived(isDelimitedFormat(o.format))
   const targets: { v: ExportTarget; label: string }[] = [
     { v: 'file', label: '파일' },
     { v: 'clipboard', label: '클립보드' },
@@ -103,7 +110,7 @@
       <span class="label">형식</span>
       <div class="seg">
         {#each formats as f (f.v)}
-          <button class:on={o.format === f.v} onclick={() => (o.format = f.v)}>{f.label}</button>
+          <button class:on={o.format === f.v} title={f.title} onclick={() => (o.format = f.v)}>{f.label}</button>
         {/each}
       </div>
     </section>
@@ -125,9 +132,13 @@
     <section>
       <span class="label">옵션</span>
       <div class="checks">
-        <label><input type="checkbox" bind:checked={o.includeHeader} /> 헤더 행 포함</label>
+        <label>
+          <input type="checkbox" bind:checked={o.includeHeader} disabled={o.format === 'mdlist'} />
+          헤더 행 포함
+          {#if o.format === 'mdlist'}<span class="why">목록은 항상 열 이름 포함</span>{/if}
+        </label>
         <label><input type="checkbox" bind:checked={o.applyColOrder} /> 현재 칼럼 순서 적용</label>
-        {#if true}
+        {#if delimited}
           <label>
             <input type="checkbox" checked={o.quoting === 'always'}
               onchange={(e) => (o.quoting = e.currentTarget.checked ? 'always' : 'minimal')} />
@@ -138,7 +149,7 @@
               onchange={(e) => (o.newline = e.currentTarget.checked ? '\r\n' : '\n')} />
             CRLF 개행 (Windows)
           </label>
-          {#if o.format === 'csv' && o.target === 'file'}
+          {#if o.target === 'file'}
             <label>
               <input type="checkbox" bind:checked={o.bom} />
               BOM 추가 <span class="why">Excel 한글 호환</span>
@@ -222,6 +233,7 @@
   /* 세그먼트 컨트롤 */
   .seg {
     display: flex;
+    flex-wrap: wrap;
     gap: 2px;
     padding: 2px;
     background: var(--bg);
@@ -229,7 +241,8 @@
     border-radius: 6px;
   }
   .seg button {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 56px;
     height: 25px;
     border-radius: 4px;
     color: var(--text-dim);

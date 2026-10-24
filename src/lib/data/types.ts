@@ -139,7 +139,20 @@ export type Op =
   | { t: 'renameCol'; c: number; before: string; after: string }
 
 export type ExportScope = 'all' | 'view' | 'selection'
-export type ExportFormat = 'csv' | 'tsv'
+export type ExportFormat =
+  | 'csv'
+  | 'tsv'
+  /** 서식 없는 `<table>` 마크업 */
+  | 'html'
+  /** 서식 있는 HTML (클립보드: text/html + TSV, 파일: 인라인 스타일 문서) */
+  | 'htmlrich'
+  /** 박스 문자 표 */
+  | 'box'
+  | 'json'
+  /** 마크다운 파이프 표 */
+  | 'mdtable'
+  /** 마크다운 불릿 목록 (레코드당 한 블록) */
+  | 'mdlist'
 export type ExportTarget = 'file' | 'clipboard'
 
 export interface ExportOptions {

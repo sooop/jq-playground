@@ -9,7 +9,7 @@ import { sniffFile } from './fileKind'
 /** 뷰어가 여는 문서. 표는 텍스트로 직렬화하지 않고 2차원 배열 그대로 넘긴다. */
 export type ViewerSource =
   | { kind: 'file'; file: File }
-  | { kind: 'table'; header: string[]; rows: string[][]; name: string; from: 'jq' }
+  | { kind: 'table'; header: string[]; rows: string[][]; name: string; from: 'jq' | 'paste' }
   | { kind: 'text'; text: string; name: string }
 
 export interface JqHandle {

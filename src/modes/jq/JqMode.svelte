@@ -12,7 +12,8 @@
   import { dialogs } from '../../lib/ui/dialog/dialog.svelte'
   import { toasts } from '../../lib/ui/toasts.svelte'
   import { shell } from '../../shell/shell.svelte'
-  import { fromRawText } from './core/input-pipeline'
+  import { parsePastedTable } from '../../lib/parse/pasteTable'
+  import { fromRawText, tableFromPaste } from './core/input-pipeline'
   import { SAMPLE_INPUT, SAMPLE_QUERY } from './data/sample'
   import { saveInputHistory } from './data/storage'
   import { jq } from './jqState.svelte'
@@ -158,6 +159,7 @@
   const fileMenu: MenuItem[] = [
     { label: '샘플 불러오기', accel: 's', run: loadSample },
     { label: '파일 열기…', accel: 'o', run: () => shell.requestOpen() },
+    { label: '클립보드의 표를 뷰어로 열기', accel: 'v', run: () => void openClipboardTable() },
     { label: '', sep: true },
     { label: '입력 비우기', accel: 'c', run: () => jq.setInput('', null) },
   ]
@@ -205,6 +207,31 @@
       jq.inputName = name
     }
     showTransform = false
+  }
+
+  /** 클립보드의 표(HTML·마크다운·박스 문자·목록·CSV/TSV·JSON)를 입력을 건드리지 않고 뷰어로 연다. */
+  async function openClipboardTable(): Promise<void> {
+    let text = ''
+    let html: string | undefined
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        if (item.types.includes('text/html')) html = await (await item.getType('text/html')).text()
+        if (item.types.includes('text/plain')) text = await (await item.getType('text/plain')).text()
+      }
+    } catch {
+      try {
+        text = await navigator.clipboard.readText()
+      } catch {
+        await dialogs.alert({ message: '클립보드를 읽을 수 없습니다. 권한을 확인하세요.', tone: 'warn' })
+        return
+      }
+    }
+    const t = parsePastedTable(text, html)
+    if (!t) {
+      await dialogs.alert({ message: '클립보드에서 표 형식을 찾지 못했습니다.', tone: 'warn' })
+      return
+    }
+    shell.openViewer({ kind: 'table', header: t.header, rows: t.rows, name: '붙여넣은 표', from: 'paste' })
   }
 
   // ── 확대(뷰어) ─────────────────────────────────────────────────────────────
@@ -260,6 +287,12 @@
       const text = e.clipboardData?.getData('text/plain')
       if (!text) return
       e.preventDefault()
+      const table = tableFromPaste(text, e.clipboardData?.getData('text/html') || undefined)
+      if (table) {
+        jq.setInput(table.text, null)
+        if (table.notice) toasts.push(table.notice, 'ok')
+        return
+      }
       void openText(text, '')
     }
     window.addEventListener('paste', onPaste)

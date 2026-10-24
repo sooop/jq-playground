@@ -15,9 +15,12 @@
   import { parseChunked } from '../lib/parse/csv'
   import { decodeAs, decodeBytes, detectDelimiter, finalize } from '../lib/parse/detect'
   import GridWorkbench from '../lib/ui/GridWorkbench.svelte'
+  import { load as loadPref, save as savePref } from '../lib/util/storage'
   import { toasts } from '../lib/ui/toasts.svelte'
   import { num } from '../lib/util/format'
   import { shell, type ViewerSource } from '../shell/shell.svelte'
+  import DetailPanel from './DetailPanel.svelte'
+  import StatsPanel from './StatsPanel.svelte'
 
   interface Props {
     source: ViewerSource
@@ -31,6 +34,30 @@
   const find = new FindStore(ds, view, sel, 'viewer.')
 
   let bench = $state<GridWorkbench | null>(null)
+
+  // --- 보기 옵션 (뷰 상태 — 원본에는 영향 없음) ---
+  const ROW_LINES = [1, 2, 3, 5] as const
+  const LINE_H = 20
+  let lines = $state<number>(loadPref('viewer.lines', 1))
+  let wrap = $state<boolean>(loadPref('viewer.wrap', false))
+  let frozen = $state(0)
+  let panel = $state<'detail' | 'stats' | null>(loadPref('viewer.panel', null))
+  const rowH = $derived(lines === 1 ? 28 : lines * LINE_H + 8)
+
+  $effect(() => {
+    savePref('viewer.lines', lines)
+    savePref('viewer.wrap', wrap)
+    savePref('viewer.panel', panel)
+  })
+
+  function togglePanel(p: 'detail' | 'stats'): void {
+    panel = panel === p ? null : p
+  }
+  /** 선택한 열까지(포함) 왼쪽을 고정한다. 이미 그 지점이면 해제. */
+  function freezeToActive(): void {
+    const n = sel.active.c + 1
+    frozen = frozen === n ? 0 : n
+  }
   let progress = $state<number | null>(null)
   let progressLabel = $state('')
   let encoding = $state('utf-8')
@@ -116,7 +143,7 @@
   })
 
   const origin = $derived(
-    source.kind === 'table' ? 'jq 결과' : source.kind === 'file' ? '파일' : '붙여넣기',
+    source.kind === 'table' ? (source.from === 'paste' ? '붙여넣기' : 'jq 결과') : source.kind === 'file' ? '파일' : '붙여넣기',
   )
 
   export function handleKeydown(e: KeyboardEvent): boolean {
@@ -160,16 +187,56 @@
     </div>
   {:else if loaded}
     <div class="body">
-      <GridWorkbench
-        bind:this={bench}
-        {ds}
-        {view}
-        {sel}
-        {find}
-        readonly
-        filterStorageKey="viewer.regexMode"
-        {encoding}
-      />
+      <div class="wb">
+        <GridWorkbench
+          bind:this={bench}
+          {ds}
+          {view}
+          {sel}
+          {find}
+          readonly
+          filterStorageKey="viewer.regexMode"
+          {encoding}
+          {rowH}
+          wrap={wrap || lines > 1}
+          {frozen}
+        >
+          {#snippet toolbarEnd()}
+            <span class="divider"></span>
+            <label class="opt" title="행 높이 — 길이가 긴 셀을 여러 줄로 보기">
+              행 높이
+              <select bind:value={lines}>
+                {#each ROW_LINES as n (n)}
+                  <option value={n}>{n}줄</option>
+                {/each}
+              </select>
+            </label>
+            <label class="opt" title="한 줄 모드에서도 셀 안의 줄바꿈을 보이게 함">
+              <input type="checkbox" bind:checked={wrap} /> 줄바꿈
+            </label>
+            <button
+              class="btn"
+              class:on={frozen > 0}
+              title={frozen > 0 ? '열 고정 해제' : '선택한 열까지 왼쪽 고정'}
+              onclick={freezeToActive}
+            >
+              열 고정{frozen > 0 ? ` ${frozen}` : ''}
+            </button>
+            <span class="divider"></span>
+            <button class="btn" class:on={panel === 'detail'} onclick={() => togglePanel('detail')}>
+              행 상세
+            </button>
+            <button class="btn" class:on={panel === 'stats'} onclick={() => togglePanel('stats')}>
+              열 통계
+            </button>
+          {/snippet}
+        </GridWorkbench>
+      </div>
+      {#if panel === 'detail'}
+        <DetailPanel {ds} {view} {sel} onClose={() => (panel = null)} />
+      {:else if panel === 'stats'}
+        <StatsPanel {ds} {view} {sel} onClose={() => (panel = null)} />
+      {/if}
     </div>
   {/if}
 </section>
@@ -215,9 +282,24 @@
   }
   .body {
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     flex: 1;
     min-height: 0;
+  }
+  /* GridWorkbench 는 루트 요소가 없는 조각이라 감싸 줘야 패널과 나란히 놓인다 */
+  .wb {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
   }
   .loading {
     display: grid;

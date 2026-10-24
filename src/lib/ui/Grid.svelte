@@ -17,6 +17,12 @@
      * 정렬·필터·선택·복사·열 폭·열 순서는 뷰 조작이므로 그대로 허용한다(jq 출력 뷰가 쓴다).
      */
     readonly?: boolean
+    /** 행 높이(px). 셀 텍스트가 길면 여러 줄을 보여 주는 용도 — 가상 스크롤은 고정 높이를 전제한다. */
+    rowH?: number
+    /** 셀 텍스트를 줄바꿈해 보여준다(행 높이를 넘는 부분은 잘린다) */
+    wrap?: boolean
+    /** 왼쪽 N개 열(뷰 기준)을 가로 스크롤에서 고정한다 */
+    frozen?: number
     /** 셀 편집 확정 */
     onCommitCell: (srcRow: number, srcCol: number, value: string) => void
     /** 헤더명 변경 확정 */
@@ -42,6 +48,9 @@
     sel,
     find,
     readonly = false,
+    rowH = 28,
+    wrap = false,
+    frozen = 0,
     onCommitCell,
     onRenameHeader,
     onMoveCol,
@@ -55,7 +64,7 @@
     onNotice,
   }: Props = $props()
 
-  const ROW_H = 28
+  const ROW_H = $derived(rowH)
   const OVERSCAN_R = 6
   const OVERSCAN_C = 2
   /** 헤더 우변에서 리사이즈 핸들로 인식하는 폭 */
@@ -98,6 +107,19 @@
   const widths = $derived(view.viewCols.map((c) => ds.colWidths[c] ?? 120))
   const offsets = $derived(buildOffsets(widths))
   const totalW = $derived(offsets[offsets.length - 1] ?? 0)
+
+  /**
+   * 실제로 고정할 열 수. 고정 영역이 뷰포트의 60%를 넘으면 가로 스크롤로 나머지를 볼 수 없으므로
+   * 그 한도까지만 고정한다.
+   */
+  const frozenCount = $derived.by(() => {
+    let n = Math.max(0, Math.min(frozen, view.viewCols.length - 1))
+    while (n > 0 && (offsets[n] ?? 0) > viewportW * 0.6) n--
+    return n
+  })
+  const frozenW = $derived(offsets[frozenCount] ?? 0)
+  /** 고정 열은 스크롤량만큼 밀어서 제자리에 붙잡는다 */
+  const stick = (c: number): number => (c < frozenCount ? scrollLeft : 0)
 
   const rowCount = $derived(view.viewRows.length)
   const colCount = $derived(view.viewCols.length)
@@ -216,10 +238,15 @@
 
   // --- 좌표 ↔ 셀 변환 ---
 
+  /** 본문 왼쪽 가장자리 기준 x → 캔버스 x. 고정 영역 위에서는 스크롤을 더하지 않는다. */
+  function contentX(rx: number): number {
+    return rx < frozenW ? rx : rx + (bodyEl?.scrollLeft ?? 0)
+  }
+
   function cellAtEvent(e: { clientX: number; clientY: number }): { r: number; c: number } | null {
     if (!bodyEl || rowCount === 0 || colCount === 0) return null
     const rect = bodyEl.getBoundingClientRect()
-    const x = e.clientX - rect.left + bodyEl.scrollLeft
+    const x = contentX(e.clientX - rect.left)
     const y = e.clientY - rect.top + bodyEl.scrollTop
     const r = Math.floor(y / ROW_H)
     return {
@@ -237,10 +264,12 @@
     else if (top + ROW_H > el.scrollTop + el.clientHeight)
       el.scrollTop = top + ROW_H - el.clientHeight
 
-    const left = offsets[c] ?? 0
-    const w = widths[c] ?? 0
-    if (left < el.scrollLeft) el.scrollLeft = left
-    else if (left + w > el.scrollLeft + el.clientWidth) el.scrollLeft = left + w - el.clientWidth
+    if (c >= frozenCount) {
+      const left = offsets[c] ?? 0
+      const w = widths[c] ?? 0
+      if (left - frozenW < el.scrollLeft) el.scrollLeft = left - frozenW
+      else if (left + w > el.scrollLeft + el.clientWidth) el.scrollLeft = left + w - el.clientWidth
+    }
     syncScroll()
   }
 
@@ -558,7 +587,7 @@
     }
     // 순서 변경 중 — 삽입 위치 계산
     const rect = bodyEl.getBoundingClientRect()
-    const x = e.clientX - rect.left + bodyEl.scrollLeft
+    const x = contentX(e.clientX - rect.left)
     let target = columnAt(offsets, Math.max(0, Math.min(totalW - 1, x)))
     // 칼럼 중앙을 넘으면 그 뒤로
     if (x > (offsets[target] ?? 0) + (widths[target] ?? 0) / 2) target++
@@ -760,7 +789,13 @@
    * 그대로 남는 행을 **이동만** 시키고, 새로 들어온 몇 행만 만든다.
    */
   const rowIdx = $derived(Array.from({ length: rowSlots }, (_, i) => firstRow + i))
-  const colIdx = $derived(Array.from({ length: colSpan }, (_, i) => firstCol + i))
+  const colIdx = $derived.by(() => {
+    const win = Array.from({ length: colSpan }, (_, i) => firstCol + i)
+    if (frozenCount === 0 || firstCol <= 0) return win
+    // 고정 열은 창 밖이어도 항상 그린다
+    const head = Array.from({ length: Math.min(frozenCount, firstCol) }, (_, i) => i)
+    return [...head, ...win]
+  })
 
   const typeGlyph: Record<string, string> = { number: '#', date: '◷', string: 'T' }
   const typeName: Record<string, string> = { number: '숫자', date: '날짜', string: '문자열' }
@@ -770,6 +805,8 @@
   class="grid"
   class:no-data={rowCount === 0}
   class:readonly
+  class:wrap
+  style:--row-h="{rowH}px"
   bind:this={rootEl}
   tabindex="0"
   role="grid"
@@ -802,7 +839,9 @@
           aria-sort={st ? (st.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
           class:sel={sel.isColFullySelected(viewCol, rowCount - 1)}
           class:sorted={!!st}
-          style:left="{offsets[viewCol]}px"
+          class:frozen={viewCol < frozenCount}
+          class:frozen-edge={viewCol === frozenCount - 1}
+          style:left="{offsets[viewCol] + stick(viewCol)}px"
           style:width="{widths[viewCol]}px"
           onpointerdown={(e) => onHeadPointerDown(e, viewCol)}
           onpointermove={onHeadPointerMove}
@@ -928,7 +967,9 @@
               class:active={sel.active.r === r && sel.active.c === c}
               class:find-hit={find.isHit(r, c)}
               class:find-cur={find.isCurrent(r, c)}
-              style:left="{offsets[c]}px"
+              class:frozen={c < frozenCount}
+              class:frozen-edge={c === frozenCount - 1}
+              style:left="{offsets[c] + stick(c)}px"
               style:width="{widths[c]}px"
             >
               {#if highlighting}
@@ -1238,6 +1279,42 @@
   }
   .td[data-type='date'] {
     color: var(--text-date);
+  }
+  /* 줄바꿈 모드 — 행 높이를 넘는 줄은 잘린다 */
+  .wrap .td {
+    align-items: flex-start;
+    padding-top: 5px;
+    line-height: 1.35;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
+  /* 고정 열 — 스크롤하는 셀 위에 불투명하게 올린다 */
+  .td.frozen {
+    z-index: 2;
+    background: var(--bg);
+  }
+  .tr.odd .td.frozen {
+    background: var(--bg-zebra);
+  }
+  .th.frozen {
+    z-index: 2;
+    background: var(--bg-header);
+  }
+  /* 선택·찾기 색은 반투명일 수 있으므로 고정 열에서는 불투명 바탕 위에 겹쳐 그린다 */
+  .tr .td.frozen.on {
+    background: linear-gradient(var(--sel-bg), var(--sel-bg)), var(--bg);
+  }
+  .tr .td.frozen.find-hit,
+  .tr .td.frozen.find-cur {
+    background: linear-gradient(var(--find-bg), var(--find-bg)), var(--bg);
+  }
+  .tr .td.frozen.active {
+    background: var(--bg);
+  }
+  .td.frozen-edge,
+  .th.frozen-edge {
+    box-shadow: 1px 0 0 var(--border);
   }
   .td.on {
     background: var(--sel-bg);

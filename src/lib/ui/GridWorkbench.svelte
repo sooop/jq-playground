@@ -39,6 +39,10 @@
     find: FindStore
     /** 읽기 전용 표(jq 출력 등). 편집 계열 상호작용을 Grid 단에서 막는다. */
     readonly?: boolean
+    /** Grid 로 그대로 전달하는 표시 옵션 — 행 높이(px)·줄바꿈·왼쪽 고정 열 수 */
+    rowH?: number
+    wrap?: boolean
+    frozen?: number
     /** 정규식 토글 상태를 기억할 localStorage 키 — 모드마다 달라야 서로 전이되지 않는다 */
     filterStorageKey?: string
     /** 툴바 왼쪽(스마트 필터 앞)·오른쪽(열 관리 뒤)에 끼울 모드 고유 버튼 */
@@ -69,6 +73,9 @@
     sel,
     find,
     readonly = false,
+    rowH = 28,
+    wrap = false,
+    frozen = 0,
     filterStorageKey = 'regexMode',
     toolbarStart,
     toolbarEnd,
@@ -363,6 +370,9 @@
     {sel}
     {find}
     {readonly}
+    {rowH}
+    {wrap}
+    {frozen}
     onCommitCell={onCommitCell ?? (() => {})}
     onRenameHeader={onRenameHeader ?? (() => {})}
     onMoveCol={onMoveCol ?? moveColDefault}

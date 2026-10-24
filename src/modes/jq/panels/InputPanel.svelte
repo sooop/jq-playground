@@ -205,11 +205,13 @@
     scheduleAutoSave()
   }
 
-  async function onPaste(): Promise<void> {
+  async function onPaste(e: ClipboardEvent): Promise<void> {
+    // 클립보드 접근은 이벤트 핸들러 안에서만 되므로 await 전에 읽어 둔다
+    const html = e.clipboardData?.getData('text/html') || undefined
     jq.autoFormat = false
     // 붙여넣기가 textarea 에 반영된 뒤에 판정해야 한다
     await new Promise((r) => setTimeout(r, 10))
-    applyResult(await fromPaste(jq.input, jq.inputName))
+    applyResult(await fromPaste(jq.input, jq.inputName, html))
   }
 
   function onKeydown(e: KeyboardEvent): void {
@@ -320,7 +322,7 @@
       spellcheck="false"
       placeholder="여기에 JSON을 붙여넣거나 파일을 끌어다 놓으세요..."
       oninput={onInput}
-      onpaste={() => void onPaste()}
+      onpaste={(e) => void onPaste(e)}
       onkeydown={onKeydown}
     ></textarea>
     {#if dragging}

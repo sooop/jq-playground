@@ -6,6 +6,7 @@
  * 복사해 두고 있었다. 한곳으로 모으면서 `confirm/alert` 은 전부 `dialogs` 로 바꿨다
  * (그래서 붙여넣기 경로가 비동기가 된다 — 호출부는 `await` 해야 한다).
  */
+import { parsePastedTable } from '../../../lib/parse/pasteTable'
 import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
 import { csvToJson, detectDelimiter } from './csv-parser'
 import { extractJson, needsJsonExtraction, tryFormatJson } from '../utils/json-extractor'
@@ -110,16 +111,45 @@ export async function fromRawText(text: string, fileName: string | null): Promis
   return base(text, fileName)
 }
 
+const TABLE_KIND_LABEL = {
+  html: 'HTML 표',
+  mdtable: '마크다운 표',
+  box: '박스 문자 표',
+  mdlist: '마크다운 목록',
+} as const
+
 /**
- * 붙여넣기 직후의 후처리. 원본의 5분기를 그대로 유지한다.
+ * 붙여넣은 내용이 구분자 텍스트·JSON 이 아닌 표 서식(HTML 표·마크다운 표·박스 문자 표·불릿 목록)이면
+ * 객체 배열 JSON 으로 바꾼다. 아니면 null — 구분자 텍스트는 기존 "CSV로 파싱" 흐름에 맡긴다.
+ */
+export function tableFromPaste(text: string, html?: string): PipelineResult | null {
+  if (text.length > LARGE_INPUT_THRESHOLD && !html) return null
+  const t = parsePastedTable(text, html)
+  if (!t || (t.kind !== 'html' && t.kind !== 'mdtable' && t.kind !== 'box' && t.kind !== 'mdlist')) return null
+  return {
+    ...base(tableToJson(t.header, t.rows), null),
+    notice: `${TABLE_KIND_LABEL[t.kind]}을(를) JSON 으로 변환했습니다 (${t.rows.length.toLocaleString()}행).`,
+  }
+}
+
+/**
+ * 붙여넣기 직후의 후처리. 원본의 5분기를 그대로 유지하되, 맨 앞에 표 서식 변환을 둔다.
+ *  ⓪ HTML 표·마크다운 표·박스 문자 표·불릿 목록 → 객체 배열 JSON
  *  ① 1MB 초과 → 아무것도 하지 않는다(UI 블로킹 방지, 자동 포맷도 끈 채로 둔다)
  *  ② CSV 처럼 보임 → "Parse as CSV" 버튼만 띄운다
  *  ③ 후보 2개 이상 → Transform 모달을 연다
  *  ④ 후보 1개 → (작으면 바로 / 크면 확인 후) 그 후보를 포맷해 넣는다
  *  ⑤ 후보 0개 → 기존 추출기 폴백
  */
-export async function fromPaste(text: string, fileName: string | null): Promise<PipelineResult> {
+export async function fromPaste(
+  text: string,
+  fileName: string | null,
+  html?: string,
+): Promise<PipelineResult> {
   const size = text.length
+
+  const table = tableFromPaste(text, html)
+  if (table) return { ...table, fileName }
 
   if (size > LARGE_INPUT_THRESHOLD) {
     return { ...base(text, fileName), autoFormat: false }

@@ -1,10 +1,24 @@
+import { renderTextFormat, TEXT_FORMAT_EXT } from '../parse/formats'
 import { serialize } from '../parse/serialize'
 import { writeTable, writeText } from './clipboard'
 import type { Dataset } from './dataset.svelte'
 import { boundingBox } from './selection.svelte'
 import type { SelectionStore } from './selection.svelte'
-import type { Delimiter, ExportOptions } from './types'
+import type { Delimiter, ExportFormat, ExportOptions } from './types'
 import type { View } from './view.svelte'
+
+/** csv/tsv 만 인용·CRLF·BOM 옵션을 가진다. 그 밖의 형식에서는 이 옵션들이 무시된다. */
+export function isDelimitedFormat(f: ExportFormat): f is 'csv' | 'tsv' {
+  return f === 'csv' || f === 'tsv'
+}
+
+/**
+ * 형식별로 buildMatrix 에 넘길 옵션을 보정한다.
+ * `mdlist` 는 레코드마다 열 이름이 필요하므로 헤더 포함 설정과 무관하게 헤더를 넣는다.
+ */
+export function effectiveOptions(opts: ExportOptions): ExportOptions {
+  return opts.format === 'mdlist' ? { ...opts, includeHeader: true } : opts
+}
 
 /**
  * 내보낼 2차원 배열을 만든다.
@@ -97,34 +111,47 @@ export async function runExport(
   sel: SelectionStore,
   opts: ExportOptions,
 ): Promise<string> {
-  const { matrix, headerRow } = buildMatrix(ds, view, sel, opts)
+  const eff = effectiveOptions(opts)
+  const { matrix, headerRow } = buildMatrix(ds, view, sel, eff)
   if (matrix.length === 0) return '내보낼 데이터가 없습니다'
 
   const dataRows = headerRow ? matrix.length - 1 : matrix.length
   const label = `${dataRows.toLocaleString('ko-KR')}행 × ${matrix[0].length}열`
+  const fmt = opts.format
 
   if (opts.target === 'clipboard') {
-    if (opts.format === 'tsv') {
+    if (fmt === 'tsv') {
       await writeTable(matrix, { headerRow })
-    } else {
+    } else if (fmt === 'htmlrich') {
+      // text/html(표 구조) + text/plain(TSV)을 함께 써서 Excel/Sheets 붙여넣기를 살린다
+      await writeTable(matrix, { headerRow })
+    } else if (fmt === 'csv') {
       await writeText(
         serialize(matrix, { delimiter: ',', quoting: opts.quoting, newline: opts.newline }),
       )
+    } else {
+      await writeText(renderTextFormat(fmt, matrix, headerRow, ds.fileName))
     }
     return `${label} 클립보드에 복사`
   }
 
   const base = fileBase(ds.fileName, opts.scope)
-  const delim: Delimiter = opts.format === 'tsv' ? '\t' : ','
-  const text = serialize(matrix, {
-    delimiter: delim,
-    quoting: opts.quoting,
-    newline: opts.newline,
-  })
-  // BOM(U+FEFF)은 Excel이 UTF-8 CSV의 한글을 제대로 읽게 하는 유일한 신호다
-  const parts: BlobPart[] = opts.bom ? ['﻿', text] : [text]
-  download(new Blob(parts, { type: 'text/plain;charset=utf-8' }), `${base}.${opts.format}`)
-  return `${label} → ${base}.${opts.format}`
+  const ext = isDelimitedFormat(fmt) ? fmt : TEXT_FORMAT_EXT[fmt]
+  let text: string
+  if (isDelimitedFormat(fmt)) {
+    text = serialize(matrix, {
+      delimiter: (fmt === 'tsv' ? '\t' : ',') as Delimiter,
+      quoting: opts.quoting,
+      newline: opts.newline,
+    })
+  } else {
+    text = renderTextFormat(fmt, matrix, headerRow, base)
+  }
+  // BOM(U+FEFF)은 Excel이 UTF-8 CSV의 한글을 제대로 읽게 하는 유일한 신호다 (csv/tsv 전용)
+  const withBom = isDelimitedFormat(fmt) && opts.bom
+  const parts: BlobPart[] = withBom ? ['﻿', text] : [text]
+  download(new Blob(parts, { type: 'text/plain;charset=utf-8' }), `${base}.${ext}`)
+  return `${label} → ${base}.${ext}`
 }
 
 function fileBase(fileName: string, scope: string): string {
