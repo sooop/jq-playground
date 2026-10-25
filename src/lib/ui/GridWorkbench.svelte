@@ -30,7 +30,11 @@
   import Grid from './Grid.svelte'
   import SmartFilter from './SmartFilter.svelte'
   import StatusBar from './StatusBar.svelte'
-  import { toasts, type ToastKind } from './toasts.svelte'
+  import { anchor } from './feedback/anchors'
+  import { feedback } from './feedback/feedback.svelte'
+  import PanelNotice from './feedback/PanelNotice.svelte'
+
+  type NoticeKind = 'info' | 'ok' | 'warn'
 
   interface Props {
     ds: Dataset
@@ -56,7 +60,12 @@
      * 그대로 돌려주거나 사이에 끼워 넣는다. 없으면 기본 항목만 쓴다.
      */
     contextItems?: (defaults: MenuItem[], e: MouseEvent) => MenuItem[]
-    onNotice?: (msg: string, kind?: ToastKind) => void
+    onNotice?: (msg: string, kind?: NoticeKind) => void
+    /**
+     * 피드백 범위. 알림 배너가 앵커 `<scope>.panel`, 내보내기 버튼이 `<scope>.export`가 된다.
+     * 한 화면에 워크벤치가 둘 이상(jq 출력 그리드와 뷰어) 있으면 서로 달라야 한다.
+     */
+    noticeScope?: string
     // --- 편집 콜백 (readonly면 Grid가 부르지 않는다) ---
     onCommitCell?: (srcRow: number, srcCol: number, value: string) => void
     onRenameHeader?: (srcCol: number, name: string) => void
@@ -83,6 +92,7 @@
     docName = null,
     contextItems,
     onNotice,
+    noticeScope = 'grid',
     onCommitCell,
     onRenameHeader,
     onMoveCol,
@@ -92,8 +102,19 @@
     onOpenReplace,
   }: Props = $props()
 
-  const notice = (msg: string, kind: ToastKind = 'info') =>
-    onNotice ? onNotice(msg, kind) : toasts.push(msg, kind)
+  /**
+   * 그리드 조작 결과. 컨텍스트 메뉴 항목·닫힌 팝오버는 앵커가 될 수 없으므로 패널 배너로 보낸다.
+   * 같은 key 라 새 알림이 이전 것을 교체한다(ok→info, warn은 사용자가 닫거나 다음 알림이 올 때까지).
+   */
+  const notice = (msg: string, kind: NoticeKind = 'info') => {
+    if (onNotice) return onNotice(msg, kind)
+    feedback.report({
+      key: `${noticeScope}.notice`,
+      kind: kind === 'warn' ? 'warn' : 'info',
+      title: msg,
+      anchors: [`${noticeScope}.panel`],
+    })
+  }
 
   let grid = $state<Grid | null>(null)
   let filterBar = $state<SmartFilter | null>(null)
@@ -238,10 +259,33 @@
 
   async function doExport(opts: ExportOptions): Promise<void> {
     showExport = false
+    const id = `${noticeScope}.export`
     try {
-      notice(await runExport(ds, view, sel, opts), 'ok')
+      const res = await runExport(ds, view, sel, opts)
+      feedback.clear(id)
+      if (!res.ok) {
+        // 다이얼로그는 이미 닫혔다. 버튼이 아니라 패널에 경고로 남긴다.
+        feedback.report({
+          key: id,
+          kind: 'warn',
+          title: res.message,
+          anchors: [`${noticeScope}.panel`, id],
+          actions: [{ label: '내보내기 설정', run: () => (showExport = true) }],
+        })
+        return
+      }
+      feedback.ok(id, '내보냄')
+      // 결과 메시지(행×열·파일명)는 길어서 버튼 칩에 담지 않고 배너에 남긴다
+      feedback.report({ key: `${noticeScope}.notice`, kind: 'info', title: res.message, anchors: [`${noticeScope}.panel`] })
     } catch (e) {
-      notice(`내보내기 실패: ${e instanceof Error ? e.message : e}`, 'warn')
+      feedback.report({
+        key: id,
+        kind: 'error',
+        title: '내보내지 못했습니다',
+        detail: e instanceof Error ? e.message : String(e),
+        anchors: [id],
+        actions: [{ label: '설정 다시 열기', run: () => (showExport = true) }],
+      })
     }
   }
 
@@ -359,8 +403,19 @@
     열 관리{view.hiddenColCount > 0 ? ` ${view.hiddenColCount}` : ''}
   </button>
 
+  <button
+    class="btn"
+    title="내보내기 (Ctrl+E)"
+    {@attach anchor(`${noticeScope}.export`)}
+    onclick={() => (showExport = true)}
+  >
+    내보내기
+  </button>
+
   {@render toolbarEnd?.()}
 </header>
+
+<PanelNotice scope={noticeScope} placement="top" />
 
 <div class="main">
   <Grid

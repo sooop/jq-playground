@@ -8,7 +8,8 @@
   import type { Dataset } from '../lib/data/dataset.svelte'
   import type { SelectionStore } from '../lib/data/selection.svelte'
   import type { View } from '../lib/data/view.svelte'
-  import { toasts } from '../lib/ui/toasts.svelte'
+  import { anchor } from '../lib/ui/feedback/anchors'
+  import { feedback } from '../lib/ui/feedback/feedback.svelte'
   import { num } from '../lib/util/format'
 
   interface Props {
@@ -42,12 +43,20 @@
 
   let rawJson = $state(false)
 
-  async function copy(text: string): Promise<void> {
+  /** 값마다 버튼이 따로 있으므로 앵커도 열(원본 열 번호)별로 둔다 */
+  async function copy(text: string, id: string): Promise<void> {
     try {
       await navigator.clipboard.writeText(text)
-      toasts.push('복사했습니다', 'ok')
-    } catch {
-      toasts.push('복사하지 못했습니다', 'warn')
+      feedback.clear(id)
+      feedback.ok(id, '복사됨')
+    } catch (e) {
+      feedback.report({
+        key: id,
+        kind: 'error',
+        title: '복사하지 못했습니다',
+        detail: e instanceof Error ? e.message : undefined,
+        anchors: [id],
+      })
     }
   }
 
@@ -86,7 +95,12 @@
         <div class="item" class:active={f.col === activeSrcCol}>
           <div class="k">
             <span class="name" title={f.name}>{f.name}</span>
-            <button class="cp" title="값 복사" onclick={() => void copy(f.value)}>복사</button>
+            <button
+              class="cp"
+              title="값 복사"
+              {@attach anchor(`detail.copy.${f.col}`)}
+              onclick={() => void copy(f.value, `detail.copy.${f.col}`)}>복사</button
+            >
           </div>
           {#if f.value === ''}
             <div class="v none">(빈 값)</div>

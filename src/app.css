@@ -35,7 +35,7 @@
   --z-popover: 400;
   --z-menu: 500;
   --z-modal: 1000;
-  --z-toast: 1500;
+  --z-feedback: 1500;
   --z-system-dialog: 2000;
 
   color-scheme: dark;
@@ -71,6 +71,8 @@
   --sel-head: rgba(77, 148, 248, 0.2);
 
   --danger: #f2555a;
+  --danger-soft: rgba(242, 85, 90, 0.13);
+  --danger-line: rgba(242, 85, 90, 0.5);
   --ok: #46c08a;
 
   /*
@@ -132,6 +134,8 @@
   --sel-head: rgba(31, 111, 235, 0.16);
 
   --danger: #c92a2f;
+  --danger-soft: rgba(201, 42, 47, 0.09);
+  --danger-line: rgba(201, 42, 47, 0.4);
   --ok: #157f52;
 
   --c-num: #0c7b70;
@@ -368,6 +372,59 @@ select {
   height: 18px;
   background: var(--border);
   flex: none;
+}
+
+/*
+ * 피드백(lib/ui/feedback) — 종류별 색 변수와, 앵커 버튼에 붙는 표식.
+ * error=빨강, warn=앰버, info=중립. 오류와 경고가 같은 색으로 섞이지 않게 한다.
+ */
+.fb-error {
+  --fb-c: var(--danger);
+  --fb-soft: var(--danger-soft);
+  --fb-line: var(--danger-line);
+}
+.fb-warn {
+  --fb-c: var(--accent);
+  --fb-soft: var(--accent-soft);
+  --fb-line: var(--accent-line);
+}
+.fb-info {
+  --fb-c: var(--text-dim);
+  --fb-soft: var(--bg-hover);
+  --fb-line: var(--border-strong);
+}
+
+/* 실패한 동작의 버튼: 팝오버를 닫아도 다음 성공까지 남는 점 */
+[data-fb-error]::before {
+  content: '';
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--danger);
+  pointer-events: none;
+}
+/* 성공 확인: 라벨은 그대로 두고 위에 덮어, 레이아웃이 밀리지 않게 한다 */
+[data-fb-ok]::after {
+  content: '✓ ' attr(data-fb-ok);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  background: var(--bg-raised);
+  border: 1px solid var(--ok);
+  border-radius: inherit;
+  color: var(--ok);
+  font-size: inherit;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

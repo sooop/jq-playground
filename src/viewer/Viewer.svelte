@@ -6,7 +6,7 @@
    * 자기 `Dataset`/`View`/`SelectionStore`/`FindStore`를 만든다 — 정렬·열 순서·숨김은 뷰
    * 상태일 뿐이라 원본(jq 출력 패널, 연 파일)에는 번지지 않는다.
    */
-  import { onMount, tick, untrack } from 'svelte'
+  import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { Dataset } from '../lib/data/dataset.svelte'
   import { FindStore } from '../lib/data/findState.svelte'
   import { SelectionStore } from '../lib/data/selection.svelte'
@@ -16,7 +16,9 @@
   import { decodeAs, decodeBytes, detectDelimiter, finalize } from '../lib/parse/detect'
   import GridWorkbench from '../lib/ui/GridWorkbench.svelte'
   import { load as loadPref, save as savePref } from '../lib/util/storage'
-  import { toasts } from '../lib/ui/toasts.svelte'
+  import { anchor } from '../lib/ui/feedback/anchors'
+  import { feedback } from '../lib/ui/feedback/feedback.svelte'
+  import PanelNotice from '../lib/ui/feedback/PanelNotice.svelte'
   import { num } from '../lib/util/format'
   import { shell, type ViewerSource } from '../shell/shell.svelte'
   import DetailPanel from './DetailPanel.svelte'
@@ -91,18 +93,24 @@
     loaded = true
     shell.viewerLabel = name
     if (result.rows.length === 0) {
-      toasts.push('데이터 행이 없습니다', 'warn')
+      feedback.report({
+        key: 'viewer.load',
+        kind: 'warn',
+        title: '데이터 행이 없습니다',
+        anchors: ['viewer.panel'],
+      })
       return
     }
     const bits = [`${num(result.rows.length)}행 × ${result.width}열`]
     if (result.raggedRows > 0) bits.push(`불규칙 행 ${num(result.raggedRows)}개 패딩`)
     if (!result.hasHeader) bits.push('헤더 없음으로 판단')
-    toasts.push(bits.join(' · '), 'ok')
+    feedback.report({ key: 'viewer.load', kind: 'info', title: bits.join(' · '), anchors: ['viewer.panel'] })
     requestAnimationFrame(() => bench?.focusGrid())
   }
 
   async function load(): Promise<void> {
     const src = source
+    feedback.clearScope('viewer.')
     try {
       if (src.kind === 'table') {
         // 텍스트로 직렬화하지 않고 바로 넣는다(인용·개행 왕복 손실 방지)
@@ -121,7 +129,14 @@
       }
     } catch (e) {
       progress = null
-      toasts.push(`파일을 읽지 못했습니다: ${e instanceof Error ? e.message : e}`, 'warn')
+      feedback.report({
+        key: 'viewer.read',
+        kind: 'error',
+        title: '파일을 읽지 못했습니다',
+        detail: e instanceof Error ? e.message : String(e),
+        anchors: ['viewer.open'],
+        actions: [{ label: '다른 파일 열기', run: () => shell.requestOpen() }],
+      })
     }
   }
 
@@ -129,17 +144,32 @@
   async function reloadAs(enc: string): Promise<void> {
     if (!lastBuffer) return
     encodingBanner = false
+    feedback.clearScope('viewer.')
     try {
       encoding = enc
       await loadText(decodeAs(lastBuffer, enc), ds.fileName)
     } catch {
-      toasts.push(`${enc}로 디코딩할 수 없습니다`, 'warn')
+      const alt = enc === 'utf-8' ? 'cp949' : 'utf-8'
+      feedback.report({
+        key: 'viewer.decode',
+        kind: 'error',
+        title: `${enc}로 디코딩할 수 없습니다`,
+        anchors: ['viewer.open'],
+        actions: [
+          { label: `${alt}로 다시 읽기`, run: () => void reloadAs(alt) },
+          { label: '다른 파일 열기', run: () => shell.requestOpen() },
+        ],
+      })
       progress = null
     }
   }
 
   onMount(() => {
     void load()
+  })
+  onDestroy(() => {
+    feedback.clearScope('viewer.')
+    feedback.clearScope('viewer-grid.')
   })
 
   const origin = $derived(
@@ -167,8 +197,11 @@
     <span class="name" title={ds.fileName}>{ds.fileName || '문서'}</span>
     <span class="origin">{origin}</span>
     <span class="spacer"></span>
-    <button class="btn outline" onclick={() => shell.requestOpen()}>파일 열기…</button>
+    <button class="btn outline" {@attach anchor('viewer.open')} onclick={() => shell.requestOpen()}>
+      파일 열기…
+    </button>
   </header>
+  <PanelNotice scope="viewer" placement="top" />
 
   {#if encodingBanner}
     <div class="banner">
@@ -200,6 +233,7 @@
           {rowH}
           wrap={wrap || lines > 1}
           {frozen}
+          noticeScope="viewer-grid"
         >
           {#snippet toolbarEnd()}
             <span class="divider"></span>

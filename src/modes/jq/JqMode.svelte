@@ -10,7 +10,7 @@
    */
   import ContextMenu, { type MenuItem } from '../../lib/ui/ContextMenu.svelte'
   import { dialogs } from '../../lib/ui/dialog/dialog.svelte'
-  import { toasts } from '../../lib/ui/toasts.svelte'
+  import { feedback } from '../../lib/ui/feedback/feedback.svelte'
   import { shell } from '../../shell/shell.svelte'
   import { parsePastedTable } from '../../lib/parse/pasteTable'
   import { fromRawText, tableFromPaste } from './core/input-pipeline'
@@ -27,6 +27,7 @@
   import HelpDialog from './ui/HelpDialog.svelte'
   import SnippetsDialog from './ui/SnippetsDialog.svelte'
   import Splitter from './ui/Splitter.svelte'
+  import { keymapEntries, type Command } from './utils/commands'
   import { createKeymap } from './utils/keymap'
 
   interface Props {
@@ -52,37 +53,253 @@
 
   const anyModal = $derived(showTransform || showCheatsheet || showSnippets || showHelp || showPalette)
 
-  // ── 단축키 ─────────────────────────────────────────────────────────────────
+  // ── 명령 ───────────────────────────────────────────────────────────────────
+  // 메뉴·패널 버튼·단축키·커맨드 팰릿이 같이 쓰는 단일 목록(utils/commands.ts).
+  // 기능을 추가하면 여기 한 줄을 넣는다 — 팰릿에서 빠질 수 없다.
+  // keywords 는 이름에 없는 한국어·영어 동의어다(팰릿 검색이 이름과 함께 본다).
 
-  const keymap = createKeymap()
-  keymap.registerAll([
-    { id: 'palette', keys: 'Ctrl+K', label: '커맨드 팰릿 열기', handler: () => (showPalette = true) },
-    { id: 'focus-input', keys: 'Ctrl+1', label: 'Input 패널 포커스', handler: () => input?.focus() },
-    { id: 'focus-query', keys: 'Ctrl+2', label: 'Query 패널 포커스', handler: () => query?.focus() },
-    { id: 'focus-output', keys: 'Ctrl+3', label: 'Output 패널 포커스', handler: () => output?.focusOutput() },
-    { id: 'cycle', keys: 'F6', label: '다음 패널로 포커스', handler: () => cycle(1) },
-    { id: 'cycle-back', keys: 'Shift+F6', label: '이전 패널로 포커스', handler: () => cycle(-1) },
+  const commands: Command[] = [
+    // 이동
+    {
+      id: 'palette',
+      keys: 'Ctrl+K',
+      label: '커맨드 팰릿 열기',
+      keywords: ['command palette', 'commands', 'cmd', '명령', '팔레트', '커맨드'],
+      run: () => (showPalette = true),
+    },
+    {
+      id: 'focus-input',
+      keys: 'Ctrl+1',
+      label: 'Input 패널 포커스',
+      keywords: ['focus input', 'go to input', '입력', '인풋', '이동', '포커스'],
+      run: () => input?.focus(),
+    },
+    {
+      id: 'focus-query',
+      keys: 'Ctrl+2',
+      label: 'Query 패널 포커스',
+      keywords: ['focus query', 'go to query', '쿼리', '질의', '이동', '포커스'],
+      run: () => query?.focus(),
+    },
+    {
+      id: 'focus-output',
+      keys: 'Ctrl+3',
+      label: 'Output 패널 포커스',
+      keywords: ['focus output', 'go to output', 'result', '출력', '결과', '이동', '포커스'],
+      run: () => output?.focusOutput(),
+    },
+    {
+      id: 'cycle',
+      keys: 'F6',
+      label: '다음 패널로 포커스',
+      keywords: ['next panel', 'cycle', '다음', '패널', '순환'],
+      run: () => cycle(1),
+    },
+    {
+      id: 'cycle-back',
+      keys: 'Shift+F6',
+      label: '이전 패널로 포커스',
+      keywords: ['previous panel', 'prev', 'back', '이전', '패널', '순환'],
+      run: () => cycle(-1),
+    },
+    // 입력
+    {
+      id: 'sample',
+      label: '샘플 불러오기',
+      keywords: ['sample', 'example', 'demo', 'load sample', '예제', '예시', '데모', '샘플'],
+      run: loadSample,
+    },
+    {
+      id: 'open-file',
+      label: '파일 열기',
+      keywords: ['open file', 'upload', 'import', 'load', '불러오기', '업로드', '가져오기', '열기'],
+      run: () => shell.requestOpen(),
+    },
+    {
+      id: 'pick-input-file',
+      label: '입력에 파일 불러오기',
+      description: 'JSON·JSONL·로그·CSV 파일을 입력 패널로',
+      keywords: ['open file', 'upload', 'input file', 'json file', '파일', '업로드', '입력'],
+      run: () => input?.pickFile(),
+    },
+    {
+      id: 'clipboard-table',
+      label: '클립보드의 표를 뷰어로 열기',
+      keywords: ['clipboard', 'paste table', 'viewer', 'csv', 'excel', '붙여넣기', '표', '뷰어', '엑셀'],
+      run: () => void openClipboardTable(),
+    },
+    {
+      id: 'format-input',
+      label: '입력 JSON 포맷',
+      hint: 'Ctrl+Shift+F (Input 안)',
+      keywords: ['format json', 'prettify', 'pretty print', 'beautify', 'indent', '포맷', '정렬', '정리', '들여쓰기'],
+      run: () => void input?.formatInput(),
+    },
+    {
+      id: 'find-input',
+      label: '입력에서 찾기',
+      hint: 'Ctrl+F (Input 안)',
+      keywords: ['find', 'search', 'input', '검색', '찾기', '입력'],
+      run: () => input?.openFind(),
+    },
+    {
+      id: 'history-input',
+      label: '입력 히스토리',
+      keywords: ['input history', 'recent input', 'history', 'recent', '최근', '기록', '이력', '입력'],
+      run: () => input?.openHistory(),
+    },
+    {
+      id: 'parse-csv',
+      label: 'CSV로 파싱',
+      description: '입력이 CSV로 보일 때',
+      keywords: ['parse csv', 'convert csv', 'csv to json', 'csv', '변환', '파싱'],
+      when: () => input?.canParseCsv() ?? false,
+      run: () => input?.convertCsv(),
+    },
     {
       id: 'transform',
       keys: 'Ctrl+Shift+T',
       label: 'JSON Transform',
       description: '로그에서 JSON 추출 / unstringify',
-      handler: () => void openTransform(),
+      keywords: ['transform', 'extract', 'unstringify', 'stringify', 'log', 'escape', 'unescape', '변환', '추출', '로그', '문자열', '이스케이프'],
+      run: () => void openTransform(),
+    },
+    {
+      id: 'undo-transform',
+      label: 'Transform 되돌리기',
+      keywords: ['undo transform', 'revert', 'undo', '되돌리기', '취소', '복원'],
+      when: () => !!jq.transformUndo,
+      run: () => input?.undoTransformApplied(),
+    },
+    {
+      id: 'clear-input',
+      label: '입력 비우기',
+      keywords: ['clear input', 'empty', 'reset', 'delete', '지우기', '삭제', '초기화', '비우기', '입력'],
+      run: () => jq.setInput('', null),
+    },
+    // 쿼리
+    {
+      id: 'run',
+      label: '쿼리 실행',
+      hint: 'Ctrl+Enter (Query 안)',
+      keywords: ['run', 'execute', 'play', 'go', '실행', '돌리기', '쿼리'],
+      run: () => jq.runNow(),
     },
     {
       id: 'autoplay',
       keys: 'Ctrl+Shift+E',
       label: '자동 실행 토글',
-      handler: () => jq.toggleAutoPlay(),
+      keywords: ['auto run', 'autoplay', 'auto', 'live', 'realtime', 'toggle', '자동', '실시간', '실행', '켜기', '끄기'],
+      run: () => jq.toggleAutoPlay(),
+    },
+    {
+      id: 'save-query',
+      label: '쿼리 저장',
+      keywords: ['save query', 'save', 'bookmark', 'snippet', '저장', '북마크', '쿼리'],
+      run: () => void query?.save(),
+    },
+    {
+      id: 'saved-queries',
+      label: '저장된 쿼리 목록',
+      keywords: ['saved queries', 'saved', 'load query', 'list', '저장됨', '목록', '불러오기', '쿼리'],
+      run: () => query?.openSaved(),
+    },
+    {
+      id: 'history-query',
+      label: '쿼리 히스토리',
+      keywords: ['query history', 'recent queries', 'history', 'recent', '최근', '기록', '이력', '쿼리'],
+      run: () => query?.openHistory(),
+    },
+    {
+      id: 'format-query',
+      label: '쿼리 포맷',
+      hint: 'Ctrl+Shift+F (Query 안)',
+      keywords: ['format query', 'prettify', 'tidy', 'pipe', '포맷', '정리', '정돈', '파이프', '쿼리'],
+      run: () => query?.formatQueryText(),
+    },
+    {
+      id: 'clear-query',
+      label: '쿼리 비우기',
+      keywords: ['clear query', 'empty', 'reset', 'delete', '지우기', '삭제', '초기화', '비우기', '쿼리'],
+      run: () => query?.setQuery(''),
+    },
+    // 출력
+    {
+      id: 'format-toggle',
+      keys: 'Ctrl+Shift+L',
+      label: '출력 형식 JSON ↔ CSV 전환',
+      keywords: ['toggle format', 'output format', 'json', 'csv', 'table', 'grid', 'switch', '형식', '포맷', '표', '테이블', '전환', '토글'],
+      run: () => (jq.format = jq.format === 'json' ? 'csv' : 'json'),
+    },
+    {
+      id: 'output-copy',
+      label: '출력 복사',
+      keywords: ['copy', 'clipboard', 'copy result', 'copy output', '복사', '클립보드', '결과', '출력'],
+      run: () => void output?.copy(),
+    },
+    {
+      id: 'output-download',
+      label: '출력 내려받기',
+      keywords: ['download', 'save', 'export', 'save as', 'file', '다운로드', '내려받기', '저장', '내보내기', '파일', '결과', '출력'],
+      run: () => output?.download(),
+    },
+    {
+      id: 'output-find',
+      label: '출력에서 찾기',
+      keywords: ['find', 'search', 'output', 'result', '검색', '찾기', '출력', '결과'],
+      run: () => output?.openSearch(),
+    },
+    {
+      id: 'output-expand',
+      label: '출력 표 확대',
+      description: '전체 화면 뷰어로',
+      keywords: ['expand', 'viewer', 'grid', 'table', 'fullscreen', 'full screen', '확대', '뷰어', '표', '전체 화면'],
+      when: () => jq.format === 'csv',
+      run: () => void expandOutput(),
     },
     {
       id: 'maximize',
       keys: 'Ctrl+Shift+M',
       label: '출력 패널 최대화 토글',
-      handler: () => (jq.maximized = !jq.maximized),
+      keywords: ['maximize', 'fullscreen', 'full screen', 'restore', 'expand', '최대화', '전체화면', '복원', '확대', '출력'],
+      run: () => (jq.maximized = !jq.maximized),
     },
-    { id: 'help', keys: '?', label: '단축키 목록', handler: () => (showHelp = true) },
-  ])
+    // 참고·도움말
+    {
+      id: 'snippets',
+      label: '스니펫',
+      keywords: ['snippets', 'templates', 'recipes', 'examples', '템플릿', '레시피', '예제', '스니펫'],
+      run: () => (showSnippets = true),
+    },
+    {
+      id: 'cheatsheet',
+      label: '문법 참조',
+      keywords: ['cheatsheet', 'syntax', 'reference', 'cheat sheet', 'jq syntax', '문법', '레퍼런스', '치트시트', '참조', '함수'],
+      run: () => (showCheatsheet = true),
+    },
+    {
+      id: 'manual',
+      label: 'jq 매뉴얼 열기',
+      keywords: ['manual', 'docs', 'documentation', 'official', 'web', '매뉴얼', '문서', '공식', '웹'],
+      run: () => window.open('https://jqlang.github.io/jq/manual/', '_blank'),
+    },
+    {
+      id: 'help',
+      keys: '?',
+      label: '단축키 목록',
+      keywords: ['shortcuts', 'keyboard', 'keys', 'hotkeys', 'help', '단축키', '키보드', '도움말'],
+      run: () => (showHelp = true),
+    },
+  ]
+
+  /** 메뉴 항목이 같은 명령을 부르게 한다 */
+  const byId = new Map(commands.map((c) => [c.id, c]))
+  const go = (id: string) => () => byId.get(id)?.run()
+
+  // ── 단축키 ─────────────────────────────────────────────────────────────────
+
+  const keymap = createKeymap()
+  keymap.registerAll(keymapEntries(commands))
 
   let focusIdx = 0
   function cycle(dir: 1 | -1): void {
@@ -157,30 +374,30 @@
   }
 
   const fileMenu: MenuItem[] = [
-    { label: '샘플 불러오기', accel: 's', run: loadSample },
-    { label: '파일 열기…', accel: 'o', run: () => shell.requestOpen() },
-    { label: '클립보드의 표를 뷰어로 열기', accel: 'v', run: () => void openClipboardTable() },
+    { label: '샘플 불러오기', accel: 's', run: go('sample') },
+    { label: '파일 열기…', accel: 'o', run: go('open-file') },
+    { label: '클립보드의 표를 뷰어로 열기', accel: 'v', run: go('clipboard-table') },
     { label: '', sep: true },
-    { label: '입력 비우기', accel: 'c', run: () => jq.setInput('', null) },
+    { label: '입력 비우기', accel: 'c', run: go('clear-input') },
   ]
   const viewMenu: MenuItem[] = [
-    { label: '스니펫', accel: 'n', run: () => (showSnippets = true) },
-    { label: '문법 참조', accel: 'r', run: () => (showCheatsheet = true) },
+    { label: '스니펫', accel: 'n', run: go('snippets') },
+    { label: '문법 참조', accel: 'r', run: go('cheatsheet') },
     { label: '', sep: true },
     {
       label: '출력 패널 최대화',
       accel: 'm',
       hint: 'Ctrl Shift M',
-      run: () => (jq.maximized = !jq.maximized),
+      run: go('maximize'),
     },
   ]
   const toolsMenu: MenuItem[] = [
-    { label: 'JSON Transform…', accel: 't', hint: 'Ctrl Shift T', run: () => void openTransform() },
-    { label: '커맨드 팰릿…', accel: 'k', hint: 'Ctrl K', run: () => (showPalette = true) },
+    { label: 'JSON Transform…', accel: 't', hint: 'Ctrl Shift T', run: go('transform') },
+    { label: '커맨드 팰릿…', accel: 'k', hint: 'Ctrl K', run: go('palette') },
   ]
   const helpMenu: MenuItem[] = [
-    { label: '단축키', accel: 's', hint: '?', run: () => (showHelp = true) },
-    { label: 'jq 매뉴얼 열기', accel: 'm', run: () => window.open('https://jqlang.github.io/jq/manual/', '_blank') },
+    { label: '단축키', accel: 's', hint: '?', run: go('help') },
+    { label: 'jq 매뉴얼 열기', accel: 'm', run: go('manual') },
   ]
 
   function loadSample(): void {
@@ -253,8 +470,6 @@
 
   // ── 수명주기 ───────────────────────────────────────────────────────────────
 
-  jq.onNotice = (msg, kind) => toasts.push(msg, kind)
-
   // 실행 디바운스 effect 는 한 번만 건다. 정리 함수를 두지 않는 이유: 이 모드는 한 번
   // 마운트되면 앱이 끝날 때까지 살아 있고(셸의 mounted 래치), 워커를 중간에 끊으면
   // 다음 실행이 폴백 경로로 새기 때문이다.
@@ -290,7 +505,14 @@
       const table = tableFromPaste(text, e.clipboardData?.getData('text/html') || undefined)
       if (table) {
         jq.setInput(table.text, null)
-        if (table.notice) toasts.push(table.notice, 'ok')
+        if (table.notice) {
+          feedback.report({
+            key: 'input.notice',
+            kind: 'info',
+            title: table.notice,
+            anchors: ['input-note.panel'],
+          })
+        }
         return
       }
       void openText(text, '')
@@ -406,7 +628,7 @@
 
 {#if showPalette}
   <CommandPalette
-    entries={keymap.entries}
+    {commands}
     onQuery={(q) => query?.setQuery(q)}
     onClose={() => (showPalette = false)}
   />

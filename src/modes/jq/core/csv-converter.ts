@@ -1,5 +1,8 @@
 const MAX_DEPTH = 10;
 
+/** 객체가 아닌 배열 원소가 들어가는 열 이름 */
+export const SCALAR_COLUMN = 'value';
+
 type Flat = Record<string, string | number | boolean>
 
 function flatten(obj: unknown, prefix = '', depth = 0): Flat {
@@ -45,7 +48,13 @@ export function jsonToMatrix(data: unknown): Matrix {
     return { header: [], rows: [] };
   }
 
-  const flatRows = list.map(item => flatten(item));
+  // 객체가 아닌 원소(문자열·숫자·불리언·null)는 "value" 열 하나로 — 한 줄이 한 행이 된다.
+  // (이전에는 문자열이 글자 단위로 열이 되었다.) 같은 로직이 jq-functions.ts 의 워커 사본에도 있다.
+  const flatRows = list.map(item =>
+    item !== null && typeof item === 'object'
+      ? flatten(item)
+      : { [SCALAR_COLUMN]: (item ?? '') as string | number | boolean },
+  );
   const header = [...new Set(flatRows.flatMap(row => Object.keys(row)))].sort();
 
   const rows = flatRows.map(row =>

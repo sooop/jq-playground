@@ -13,7 +13,9 @@
   import { finalize } from '../../../lib/parse/detect'
   import type { MenuItem } from '../../../lib/ui/ContextMenu.svelte'
   import GridWorkbench from '../../../lib/ui/GridWorkbench.svelte'
-  import { toasts } from '../../../lib/ui/toasts.svelte'
+  import { anchor } from '../../../lib/ui/feedback/anchors'
+  import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
+  import PanelNotice from '../../../lib/ui/feedback/PanelNotice.svelte'
   import { downloadText } from '../core/file-handler'
   import { matrixToCSV } from '../core/csv-converter'
   import { jq } from '../jqState.svelte'
@@ -121,14 +123,26 @@
       ? matrixToCSV(jq.matrix?.header ?? [], jq.matrix?.rows ?? [])
       : (json?.fullText() ?? jq.resultText ?? '')
     if (!text) {
-      toasts.push('복사할 결과가 없습니다.', 'warn')
+      feedback.report({
+        key: 'output.copy',
+        kind: 'warn',
+        title: '복사할 결과가 없습니다',
+        anchors: ['output.copy'],
+      })
       return
     }
     try {
       await navigator.clipboard.writeText(text)
-      toasts.push('결과를 클립보드에 복사했습니다.', 'ok')
+      feedback.clear('output.copy')
+      feedback.ok('output.copy', '복사됨')
     } catch {
-      toasts.push('클립보드 복사에 실패했습니다.', 'warn')
+      feedback.report({
+        key: 'output.copy',
+        kind: 'error',
+        title: '클립보드에 복사하지 못했습니다',
+        detail: '브라우저가 클립보드 접근을 막았을 수 있습니다.',
+        anchors: ['output.copy'],
+      })
     }
   }
 
@@ -137,14 +151,27 @@
       ? matrixToCSV(jq.matrix?.header ?? [], jq.matrix?.rows ?? [])
       : (jq.resultText ?? '')
     if (!text) {
-      toasts.push('내려받을 결과가 없습니다.', 'warn')
+      feedback.report({
+        key: 'output.download',
+        kind: 'warn',
+        title: '내려받을 결과가 없습니다',
+        anchors: ['output.download'],
+      })
       return
     }
+    feedback.clear('output.download')
     downloadText(text, isGrid ? 'output.csv' : 'output.json')
   }
 
   // ── 노출 API ───────────────────────────────────────────────────────────────
 
+  // 커맨드 팰릿이 부르는 동작 — 패널 버튼과 같은 함수를 쓴다.
+  export function copy(): Promise<void> {
+    return copyOut()
+  }
+  export function download(): void {
+    downloadOut()
+  }
   export function focusOutput(): void {
     if (isGrid) bench?.focusGrid()
     else json?.focusView()
@@ -194,7 +221,7 @@
     <span class="panel-title">
       Output
       {#if jq.loading}<span class="chip">실행 중…</span>{/if}
-      {#if jq.stale}<span class="chip prev">이전 결과</span>{/if}
+      {#if jq.stale}<span class="chip prev" title="마지막으로 성공한 결과입니다. 갱신되지 않았습니다.">이전 결과 · 갱신 안 됨</span>{/if}
     </span>
     <div class="panel-actions">
       <button
@@ -205,7 +232,12 @@
       >
         {jq.autoPlay ? '자동 ⏸' : '자동 ▶'}
       </button>
-      <select class="field fmt" bind:value={jq.format} aria-label="출력 형식">
+      <select
+        class="field fmt"
+        bind:value={jq.format}
+        aria-label="출력 형식"
+        title="출력 형식 JSON ↔ CSV 전환 (Ctrl+Shift+L)"
+      >
         <option value="json">JSON</option>
         <option value="csv">CSV</option>
       </select>
@@ -213,8 +245,8 @@
         <button class="btn outline" title="전체 화면 뷰어로 확대" onclick={onExpand}>확대</button>
       {/if}
       <button class="btn" title="찾기 (Ctrl+F)" onclick={openSearch}>찾기</button>
-      <button class="btn" onclick={() => void copyOut()}>복사</button>
-      <button class="btn" onclick={downloadOut}>내려받기</button>
+      <button class="btn" {@attach anchor('output.copy')} onclick={() => void copyOut()}>복사</button>
+      <button class="btn" {@attach anchor('output.download')} onclick={downloadOut}>내려받기</button>
       <button
         class="btn icon"
         title={jq.maximized ? '출력 패널 복원 (Ctrl+Shift+M / Esc)' : '출력 패널 최대화 (Ctrl+Shift+M)'}
@@ -249,6 +281,9 @@
     </div>
   {/if}
 
+  <PanelNotice scope="output" placement="top" />
+
+  <!-- 엔진 로드 실패·3MB 초과 자동 실행 중단 안내 전용. 쿼리·입력 오류는 각 패널의 상태줄에 붙는다 -->
   {#if jq.error}
     <p class="err" role="status">{jq.error}</p>
   {/if}
@@ -280,6 +315,10 @@
       <OutputJson bind:this={json} text={jq.resultText ?? ''} stale={jq.stale} />
     {/if}
   </div>
+
+  {#if jq.stale && jq.runFailed && hasResult}
+    <p class="stale-note">마지막으로 성공한 결과를 보여주고 있습니다. 오류를 고치면 다시 실행됩니다.</p>
+  {/if}
 </section>
 
 <style>
@@ -394,6 +433,15 @@
     white-space: pre-wrap;
     max-height: 5.4em;
     overflow-y: auto;
+  }
+
+  .stale-note {
+    margin: 0;
+    flex: none;
+    padding: 4px 10px;
+    border-top: 1px solid var(--border-soft);
+    font-size: var(--fs-label);
+    color: var(--text-faint);
   }
 
   .panel-body {

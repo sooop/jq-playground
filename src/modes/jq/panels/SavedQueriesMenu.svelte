@@ -2,7 +2,7 @@
   /** 저장된 쿼리 드롭다운 — 퍼지 검색 · 삭제 · 내보내기/가져오기. 고르면 최근 사용으로 올린다. */
   import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
   import { dismissable } from '../../../lib/ui/dismiss'
-  import { toasts } from '../../../lib/ui/toasts.svelte'
+  import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
   import { downloadText } from '../core/file-handler'
   import {
     deleteSavedQuery,
@@ -101,7 +101,7 @@
       if (merge) await importSavedQueries(valid)
       else await replaceSavedQueries(valid)
       await reload()
-      toasts.push(`쿼리 ${valid.length}건을 가져왔습니다.`, 'ok')
+      feedback.ok('query.saved', `${valid.length}건 가져옴`)
     } catch (error) {
       await dialogs.alert({
         title: '가져오기 실패',

@@ -11,7 +11,9 @@
  *  - 입력이 3MB 를 넘고 강제 실행이 아니면 자동 실행을 꺼 버린다.
  */
 import { untrack } from 'svelte'
-import { jqEngine, type EngineState } from './core/jq-engine'
+import { jqEngine, JqRunError, type EngineState, type RunErrorSource } from './core/jq-engine'
+import { describeRunError } from './core/run-error'
+import { feedback } from '../../lib/ui/feedback/feedback.svelte'
 import type { Matrix } from './core/csv-converter'
 import { jsonToMatrix } from './core/csv-converter'
 import { saveQueryHistory } from './data/storage'
@@ -22,7 +24,7 @@ export type OutputFormat = 'json' | 'csv'
 const SIZE_3MB = 3 * 1024 * 1024
 const SIZE_500KB = 500 * 1024
 
-/** 결과 그리드가 감당할 만한 행 수. 넘으면 토스트로 경고한다. */
+/** 결과 그리드가 감당할 만한 행 수. 넘으면 OUTPUT 배너로 경고한다. */
 export const GRID_ROW_WARN = 200_000
 
 function errMessage(e: unknown): string {
@@ -53,7 +55,13 @@ class JqStore {
   matrix = $state.raw<Matrix | null>(null)
   execMs = $state<number | undefined>(undefined)
   loading = $state(false)
+  /**
+   * 엔진 쪽 안내(엔진 로드 실패·3MB 초과 자동 실행 중단) — OutputPanel 의 `.err` 줄이 그린다.
+   * 쿼리·입력 오류는 여기에 담지 않고 `feedback`(키 `run.<source>`)으로 해당 패널에 붙인다.
+   */
   error = $state<string | null>(null)
+  /** 마지막 실행이 쿼리·입력 오류로 끝났는가. stale 안내와 "갱신 안 됨" 칩의 근거 */
+  runFailed = $state(false)
   /** 에러가 났지만 이전 결과를 흐리게 남겨 둔 상태 */
   stale = $state(false)
   lastRunAt = $state('')
@@ -74,9 +82,46 @@ class JqStore {
   /** 결과 행수 경고를 한 번만 내기 위한 표시 */
   #warnedRows = false
 
-  /** 외부에서 결과를 받았을 때 알리는 훅(그리드 적재·토스트). JqMode 가 채운다. */
+  /** 외부에서 결과를 받았을 때 알리는 훅(그리드 적재). JqMode 가 채운다. */
   onResult: ((m: Matrix | null) => void) | null = null
-  onNotice: ((msg: string, kind?: 'info' | 'ok' | 'warn') => void) | null = null
+
+  /**
+   * 오류 위치로 캐럿을 옮기는 함수. textarea 는 패널 컴포넌트가 쥐고 있으므로
+   * 패널이 마운트될 때 등록하고 해제한다(여기서는 DOM 을 잡지 않는다).
+   */
+  #caret: Partial<Record<RunErrorSource, (offset: number) => void>> = {}
+  registerCaret(source: RunErrorSource, fn: (offset: number) => void): () => void {
+    this.#caret[source] = fn
+    return () => {
+      if (this.#caret[source] === fn) delete this.#caret[source]
+    }
+  }
+
+  #reportRunError(source: RunErrorSource, message: string, text: string): void {
+    const v = describeRunError(source, message, text)
+    const offset = v.offset
+    feedback.report({
+      key: `run.${source}`,
+      kind: 'error',
+      title: v.title,
+      detail: v.detail,
+      loc: v.loc,
+      anchors: [`${source}.panel`],
+      actions:
+        offset === undefined
+          ? undefined
+          : [{ label: '이동', run: () => this.#caret[source]?.(offset) }],
+    })
+    // 다른 출처의 낡은 오류는 치운다(입력을 고치면 쿼리 오류가 아니라 입력 오류만 남아야 한다)
+    feedback.clear(`run.${source === 'input' ? 'query' : 'input'}`)
+  }
+
+  #runOk(): void {
+    this.error = null
+    this.runFailed = false
+    this.stale = false
+    feedback.clearScope('run.')
+  }
 
   get hasDocument(): boolean {
     return this.input.trim().length > 0
@@ -174,8 +219,7 @@ class JqStore {
       const format = this.format
       void saveQueryHistory(query)
 
-      this.error = null
-      this.stale = false
+      this.#runOk()
       this.execMs = executionTime
       this.lastRunAt = new Date().toLocaleTimeString()
 
@@ -202,7 +246,15 @@ class JqStore {
       }
     } catch (e) {
       if (gen !== this.#gen) return
-      this.error = errMessage(e)
+      const msg = errMessage(e)
+      const source = e instanceof JqRunError ? e.source : undefined
+      if (source) {
+        this.runFailed = true
+        this.#reportRunError(source, msg, source === 'input' ? input : query)
+      } else {
+        // 출처를 모르는 오류(워커 초기화 실패 등)는 엔진 안내로 취급한다
+        this.error = msg
+      }
       // 이전 결과는 지우지 않고 흐리게 남긴다
       this.stale = this.resultText !== null || this.matrix !== null
     } finally {
@@ -244,12 +296,18 @@ class JqStore {
     this.matrix = m
     if (m && m.rows.length > GRID_ROW_WARN && !this.#warnedRows) {
       this.#warnedRows = true
-      this.onNotice?.(
-        `결과가 ${m.rows.length.toLocaleString()}행입니다. 그리드가 느려질 수 있습니다.`,
-        'warn',
-      )
+      feedback.report({
+        key: 'output.rows',
+        kind: 'warn',
+        title: `결과가 ${m.rows.length.toLocaleString()}행입니다. 그리드가 느려질 수 있습니다.`,
+        anchors: ['output.panel'],
+        clearOn: 'manual',
+      })
     }
-    if (!m || m.rows.length <= GRID_ROW_WARN) this.#warnedRows = false
+    if (!m || m.rows.length <= GRID_ROW_WARN) {
+      this.#warnedRows = false
+      feedback.clear('output.rows')
+    }
     this.onResult?.(m)
   }
 
@@ -258,8 +316,7 @@ class JqStore {
     this.resultText = null
     this.#setMatrix(null)
     this.execMs = undefined
-    this.error = null
-    this.stale = false
+    this.#runOk()
     this.loading = false
   }
 

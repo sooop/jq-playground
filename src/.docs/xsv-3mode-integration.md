@@ -132,7 +132,7 @@ IndexedDB 스키마(`idb.ts`, DB `xsv-playground` v1, 멱등 `onupgradeneeded` �
 
 ### P1. 무해 추출 3종 (App.svelte 동작 완전 불변, e2e/edge 수정 0줄)
 - `lib/util/cdn.ts` `loadScript(url)`/`loadStyle(url)`: 중복 호출 dedupe + **실패 시 캐시 삭제해 재시도 가능**(`xlsx.ts:38` 규약). `xlsx.ts:26-44` `loadSheetJS`를 3줄로 축소.
-- `lib/ui/toast.svelte.ts` `ToastController{items, push, dismiss}` 싱글턴 `toasts`. `App.svelte:114-124` 위임, `Toast.svelte` 무수정. 하위 컴포넌트의 `onNotice` prop 드릴링(`Grid.svelte:31`, `ColumnManager.svelte:12`)은 그대로 두되 신규 코드는 싱글턴 사용.
+- (※ 이후 `lib/ui/feedback/`의 앵커 기반 피드백(`feedback.report/ok/clear`)으로 대체되어 토스트는 삭제됨. 신규 코드는 `feedback`을 쓴다.) `lib/ui/toast.svelte.ts` `ToastController{items, push, dismiss}` 싱글턴 `toasts`. `App.svelte:114-124` 위임, `Toast.svelte` 무수정. 하위 컴포넌트의 `onNotice` prop 드릴링(`Grid.svelte:31`, `ColumnManager.svelte:12`)은 그대로 두되 신규 코드는 싱글턴 사용.
 - `lib/data/idb.ts` 분리(openDb/req/withTx/normalizeError/DocStoreError/newDocId/idbUsable/storageInfo, `docStore.ts:25-161,200-210`). `docStore.ts`는 위임만. **DB_NAME은 아직 `'xsv'`.** `tests/docs.test.ts`는 docStore를 import하지 않아 영향 0.
 
 ### P2. CsvMode 순수 추출 (가장 위험 — 여기서 멈추고 확인)

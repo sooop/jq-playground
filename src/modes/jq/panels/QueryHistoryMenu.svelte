@@ -2,7 +2,7 @@
   /** 쿼리 히스토리 드롭다운 — 퍼지 검색 · 개별/전체 삭제 · 내보내기/가져오기. */
   import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
   import { dismissable } from '../../../lib/ui/dismiss'
-  import { toasts } from '../../../lib/ui/toasts.svelte'
+  import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
   import { downloadText } from '../core/file-handler'
   import {
     clearAllQueryHistory,
@@ -97,7 +97,7 @@
       if (merge) await importQueryHistory(valid)
       else await replaceQueryHistory(valid)
       await reload()
-      toasts.push(`히스토리 ${valid.length}건을 가져왔습니다.`, 'ok')
+      feedback.ok('query.history', `${valid.length}건 가져옴`)
     } catch (error) {
       await dialogs.alert({
         title: '가져오기 실패',

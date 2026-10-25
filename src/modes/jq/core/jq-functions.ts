@@ -435,7 +435,12 @@ const JQ_WORKER_CODE = `
     if (data.length === 0) return { header: [], rows: [] };
 
     var flatRows = [];
-    for (var i = 0; i < data.length; i++) flatRows.push(csvFlatten(data[i], '', 0));
+    // 객체가 아닌 원소는 "value" 열 하나로 — core/csv-converter.ts 의 jsonToMatrix 와 같은 규칙이다.
+    for (var i = 0; i < data.length; i++) {
+      var item = data[i];
+      if (item !== null && typeof item === 'object') flatRows.push(csvFlatten(item, '', 0));
+      else flatRows.push({ value: item === null || item === undefined ? '' : item });
+    }
 
     var keySet = {};
     for (var ri = 0; ri < flatRows.length; ri++) {
@@ -526,11 +531,14 @@ const JQ_WORKER_CODE = `
         return;
       }
       var startTime = performance.now();
+      var parsing = false;
       try {
         // 캐싱된 파싱 결과 사용 (입력이 같으면 재파싱 방지)
         if (cachedParsed === null) {
+          parsing = true;
           cachedParsed = JSON.parse(input);
         }
+        parsing = false;
         var parsed = cachedParsed;
 
         Promise.resolve(jqInstance.json(parsed, query)).then(function(result) {
@@ -547,7 +555,7 @@ const JQ_WORKER_CODE = `
             if (keepResult) cachedResult = [];
             self.postMessage({ type: 'result', id: id, resultBuffer: new ArrayBuffer(0), executionTime: t });
           } else {
-            self.postMessage({ type: 'error', id: id, message: err.message });
+            self.postMessage({ type: 'error', id: id, message: err.message, source: 'query' });
           }
         });
       } catch(err) {
@@ -556,7 +564,7 @@ const JQ_WORKER_CODE = `
           if (keepResult) cachedResult = [];
           self.postMessage({ type: 'result', id: id, resultBuffer: new ArrayBuffer(0), executionTime: t2 });
         } else {
-          self.postMessage({ type: 'error', id: id, message: err.message });
+          self.postMessage({ type: 'error', id: id, message: err.message, source: parsing ? 'input' : 'query' });
         }
       }
     }).catch(function(err) {

@@ -104,16 +104,22 @@ function isSelected(sel: SelectionStore, r: number, c: number): boolean {
   return false
 }
 
-/** 실제 내보내기 실행. @returns 사용자에게 보여줄 결과 메시지 */
+/** 내보내기 결과. `ok:false`는 오류는 아니지만 아무것도 내보내지 못한 경우(빈 데이터) — 경고로 보여 준다. */
+export interface ExportResult {
+  ok: boolean
+  message: string
+}
+
+/** 실제 내보내기 실행. @returns 사용자에게 보여줄 결과 (`ok:false`면 내보낸 것이 없음) */
 export async function runExport(
   ds: Dataset,
   view: View,
   sel: SelectionStore,
   opts: ExportOptions,
-): Promise<string> {
+): Promise<ExportResult> {
   const eff = effectiveOptions(opts)
   const { matrix, headerRow } = buildMatrix(ds, view, sel, eff)
-  if (matrix.length === 0) return '내보낼 데이터가 없습니다'
+  if (matrix.length === 0) return { ok: false, message: '내보낼 데이터가 없습니다' }
 
   const dataRows = headerRow ? matrix.length - 1 : matrix.length
   const label = `${dataRows.toLocaleString('ko-KR')}행 × ${matrix[0].length}열`
@@ -132,7 +138,7 @@ export async function runExport(
     } else {
       await writeText(renderTextFormat(fmt, matrix, headerRow, ds.fileName))
     }
-    return `${label} 클립보드에 복사`
+    return { ok: true, message: `${label} 클립보드에 복사` }
   }
 
   const base = fileBase(ds.fileName, opts.scope)
@@ -151,7 +157,7 @@ export async function runExport(
   const withBom = isDelimitedFormat(fmt) && opts.bom
   const parts: BlobPart[] = withBom ? ['﻿', text] : [text]
   download(new Blob(parts, { type: 'text/plain;charset=utf-8' }), `${base}.${ext}`)
-  return `${label} → ${base}.${ext}`
+  return { ok: true, message: `${label} → ${base}.${ext}` }
 }
 
 function fileBase(fileName: string, scope: string): string {

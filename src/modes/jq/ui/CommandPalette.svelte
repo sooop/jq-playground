@@ -6,8 +6,8 @@
    */
   import Modal from '../../../lib/ui/Modal.svelte'
   import { getQueryHistory, getSavedQueries } from '../data/storage'
-  import { fuzzyScore } from '../util/fuzzy'
-  import type { KeymapEntry } from '../utils/keymap'
+  import { commandScore } from '../util/fuzzy'
+  import type { Command } from '../utils/commands'
 
   type Kind = 'action' | 'snippet' | 'history'
 
@@ -16,16 +16,18 @@
     kind: Kind
     label: string
     description?: string
+    /** 이름에 없는 한국어·영어 동의어 — 검색에만 쓰고 화면에는 보이지 않는다 */
+    keywords?: readonly string[]
     badge?: string
     run: () => void
   }
 
   interface Props {
-    entries: readonly KeymapEntry[]
+    commands: readonly Command[]
     onQuery: (q: string) => void
     onClose: () => void
   }
-  let { entries, onQuery, onClose }: Props = $props()
+  let { commands, onQuery, onClose }: Props = $props()
 
   const SECTIONS: { kind: Kind; label: string }[] = [
     { kind: 'action', label: '액션' },
@@ -39,12 +41,14 @@
   let inputEl = $state<HTMLInputElement | null>(null)
 
   const filtered = $derived.by(() => {
-    if (!term.trim()) return all.slice(0, 30)
+    if (!term.trim()) {
+      // 액션은 전부 보여 준다(명령이 30개를 넘어도 저장된 쿼리·최근 쿼리에 밀리지 않게 종류별로 자른다).
+      const cap: Record<Kind, number> = { action: Infinity, snippet: 10, history: 10 }
+      const seen: Record<Kind, number> = { action: 0, snippet: 0, history: 0 }
+      return all.filter((i) => seen[i.kind]++ < cap[i.kind])
+    }
     return all
-      .map((item) => ({
-        item,
-        score: fuzzyScore(term, item.label) + fuzzyScore(term, item.description ?? '') * 0.5,
-      }))
+      .map((item) => ({ item, score: commandScore(term, item) }))
       .filter(({ score }) => score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 20)
@@ -55,14 +59,18 @@
   const ordered = $derived(SECTIONS.flatMap((s) => filtered.filter((i) => i.kind === s.kind)))
 
   async function load(): Promise<void> {
-    const items: CPItem[] = entries.map((e) => ({
-      id: `action:${e.id}`,
-      kind: 'action',
-      label: e.label,
-      description: e.description,
-      badge: e.keys,
-      run: () => e.handler(new KeyboardEvent('keydown')),
-    }))
+    // 진입 조건(`when`)이 거짓인 명령은 숨긴다 — 예: CSV 결과가 아닐 때의 "표 확대"
+    const items: CPItem[] = commands
+      .filter((c) => !c.when || c.when())
+      .map((c) => ({
+        id: `action:${c.id}`,
+        kind: 'action',
+        label: c.label,
+        description: c.description,
+        keywords: c.keywords,
+        badge: c.keys ?? c.hint,
+        run: c.run,
+      }))
 
     try {
       for (const q of await getSavedQueries()) {
@@ -138,7 +146,7 @@
       bind:this={inputEl}
       class="field"
       type="text"
-      placeholder="명령 또는 쿼리 검색..."
+      placeholder="명령 또는 쿼리 검색 (한글·영어·초성: ㅂㅅ, copy)"
       bind:value={term}
       onkeydown={onKeydown}
     />

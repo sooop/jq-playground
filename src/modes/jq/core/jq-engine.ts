@@ -23,10 +23,25 @@ type Pending = {
   reject: (e: Error) => void
 }
 
+/** 실행 오류의 출처 — 입력 JSON 파싱 실패('input') 또는 jq 쿼리 오류('query'). */
+export type RunErrorSource = 'input' | 'query'
+
+/** 실행 오류. `source`로 입력 문제와 쿼리 문제를 구분한다(없으면 출처 불명). */
+export class JqRunError extends Error {
+  source?: RunErrorSource
+  constructor(message: string, source?: RunErrorSource) {
+    super(message)
+    this.name = 'JqRunError'
+    this.source = source
+  }
+}
+
 interface WorkerMessage {
   type: 'ready' | 'init_error' | 'result' | 'formatted' | 'error'
   id?: number
   message?: string
+  /** 'error' 메시지에만 — 오류 출처(필드 추가만, 기존 프로토콜 유지) */
+  source?: RunErrorSource
   resultBuffer?: ArrayBuffer
   resultText?: string
   executionTime?: number
@@ -236,7 +251,7 @@ class JqEngine {
           rows: msg.rows,
         })
     } else if (msg.type === 'error') {
-      pending.reject(new Error(msg.message ?? 'jq 실행 오류'))
+      pending.reject(new JqRunError(msg.message ?? 'jq 실행 오류', msg.source))
     }
   }
 
@@ -306,8 +321,10 @@ class JqEngine {
   async #executeMainThread(input: string, query: string): Promise<ExecuteResult> {
     if (!this.#instance) throw new Error('jq 엔진이 준비되지 않았습니다')
     const startTime = performance.now()
+    let parsing = true
     try {
       const parsedInput = JSON.parse(input)
+      parsing = false
       const result = await this.#instance.json(parsedInput, query)
       return {
         result,
@@ -320,7 +337,7 @@ class JqEngine {
       if (errMessage(error).includes('Unexpected end of JSON input')) {
         return { result: [], resultText: '[]', executionTime }
       }
-      throw error
+      throw new JqRunError(errMessage(error), parsing ? 'input' : 'query')
     }
   }
 

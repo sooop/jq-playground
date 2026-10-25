@@ -11,12 +11,19 @@
  */
 import { STORES } from '../../../lib/data/idb'
 import { kvStore } from '../../../lib/data/kvStore'
+import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
+import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
+import { downloadText } from '../core/file-handler'
 import type { InputHistoryEntry, QueryHistoryEntry, SavedQuery } from '../types'
 
 /** 입력 히스토리 상한 — 넘으면 등록 시각이 오래된 것부터 지운다 */
 const MAX_INPUT_HISTORY = 300
 /** 쿼리 히스토리 상한 */
 const MAX_QUERY_HISTORY = 100
+/** 입력 한 건의 저장 상한(글자 수) — 넘으면 히스토리에 넣지 않고 파일로 내려받도록 안내한다 */
+const MAX_ENTRY_SIZE = 5 * 1024 * 1024
+/** 입력 히스토리 전체 크기 상한(글자 수) — 넘으면 오래된 것부터 지운다 */
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024
 /** 이 크기를 넘으면 포맷하지 않고 trim만 한다(메인 스레드 보호) */
 const FORMAT_THRESHOLD = 1024 * 1024
 
@@ -48,33 +55,72 @@ export type InputSortKey = 'timestamp' | 'lastUsed'
 
 // ── 입력 히스토리 ────────────────────────────────────────────────────────────
 
+/** 큰 입력 안내를 이미 띄운 파일 이름 — 자동 저장이 반복되어도 한 번만 묻는다 */
+const largeNotified = new Set<string>()
+let lastFailureToast = 0
+
+async function offerDownload(content: string, fileName: string | null): Promise<void> {
+  const key = fileName ?? ''
+  if (largeNotified.has(key)) return
+  largeNotified.add(key)
+  const mb = (content.length / 1024 / 1024).toFixed(1)
+  const ok = await dialogs.confirm({
+    title: '입력이 커서 히스토리에 저장하지 않습니다',
+    message: `입력 크기가 약 ${mb}MB입니다. 이 크기는 브라우저 저장소(히스토리)에 넣지 않습니다. 파일로 내려받아 보관할까요?`,
+    detail: `히스토리에는 ${MAX_ENTRY_SIZE / 1024 / 1024}MB까지만 저장합니다.`,
+    okLabel: '파일로 내려받기',
+    cancelLabel: '건너뛰기',
+    tone: 'info',
+  })
+  if (ok) downloadText(content, fileName || 'input.json')
+}
+
+function reportSaveFailure(): void {
+  const now = Date.now()
+  if (now - lastFailureToast < 60_000) return
+  lastFailureToast = now
+  feedback.report({
+    key: 'storage.history',
+    kind: 'warn',
+    title: '입력 히스토리를 저장하지 못했습니다',
+    detail: '브라우저 저장 공간이 부족할 수 있습니다.',
+    anchors: ['input.history'],
+  })
+}
+
 /**
  * 입력을 히스토리에 넣는다. 같은 내용이 이미 있으면 `lastUsed`만 갱신한다
- * (해시가 같아도 내용이 다를 수 있으므로 내용까지 비교한다).
+ * (해시가 같아도 내용이 다를 수 있으므로 내용까지 비교한다). 조회와 저장은 한 트랜잭션이다.
+ * 한 건이 `MAX_ENTRY_SIZE`를 넘으면 저장하지 않고 파일 내려받기를 권한다.
  */
 export async function saveInputHistory(content: string, fileName: string | null): Promise<void> {
   if (!content || !content.trim()) return
   const formatted = formatContent(content)
+  if (formatted.length > MAX_ENTRY_SIZE) {
+    await offerDownload(formatted, fileName)
+    return
+  }
   const hash = fnv1aHash(formatted)
   const now = new Date().toISOString()
 
   try {
-    const existing = await inputStore.findBy('by_hash', hash)
-    if (existing && existing.content === formatted) {
-      await inputStore.put({ ...existing, lastUsed: now })
-      return
-    }
-    await inputStore.put({
-      content: formatted,
-      contentHash: hash,
-      fileName,
-      size: formatted.length,
-      timestamp: now,
-      lastUsed: now,
-    } as InputHistoryEntry)
-    await inputStore.enforceLimit(MAX_INPUT_HISTORY, 'by_time')
+    const id = await inputStore.upsertBy('by_hash', hash, (existing) =>
+      existing && existing.content === formatted
+        ? { ...existing, lastUsed: now }
+        : ({
+            content: formatted,
+            contentHash: hash,
+            fileName,
+            size: formatted.length,
+            timestamp: now,
+            lastUsed: now,
+          } as InputHistoryEntry),
+    )
+    // 방금 저장한 항목은 지우지 않는다
+    await inputStore.enforceLimit(MAX_INPUT_HISTORY, 'by_time', [id])
+    await inputStore.enforceBytes(MAX_TOTAL_SIZE, 'by_time', (v) => v.size ?? v.content.length, [id])
   } catch {
-    /* 저장 실패는 무시한다 */
+    reportSaveFailure()
   }
 }
 
@@ -167,11 +213,13 @@ export async function getSavedQueries(): Promise<SavedQuery[]> {
   return all.reverse()
 }
 
-export async function saveSavedQuery(name: string, query: string): Promise<void> {
+/** 저장 쿼리를 한 건 넣는다. 실패(저장 공간 부족 등)는 `false` — 호출자가 알려야 한다. */
+export async function saveSavedQuery(name: string, query: string): Promise<boolean> {
   try {
     await savedStore.put({ name, query, timestamp: new Date().toISOString() } as SavedQuery)
+    return true
   } catch {
-    /* 무시 */
+    return false
   }
 }
 
@@ -200,9 +248,17 @@ export async function importSavedQueries(items: { name: string; query: string; t
   }
 }
 
+/** 비운 뒤 채우는 도중 실패하면 원래 내용으로 되돌린다. */
 export async function replaceSavedQueries(items: { name: string; query: string; timestamp?: string }[]): Promise<void> {
+  const backup = await savedStore.list()
   await savedStore.clear()
-  await importSavedQueries(items)
+  try {
+    await importSavedQueries(items)
+  } catch (e) {
+    await savedStore.clear().catch(() => {})
+    for (const b of backup) await savedStore.put(b).catch(() => {})
+    throw e
+  }
 }
 
 export async function importQueryHistory(queries: string[]): Promise<void> {
@@ -210,6 +266,13 @@ export async function importQueryHistory(queries: string[]): Promise<void> {
 }
 
 export async function replaceQueryHistory(queries: string[]): Promise<void> {
+  const backup = await queryStore.list()
   await queryStore.clear()
-  await importQueryHistory(queries)
+  try {
+    await importQueryHistory(queries)
+  } catch (e) {
+    await queryStore.clear().catch(() => {})
+    for (const b of backup) await queryStore.put(b).catch(() => {})
+    throw e
+  }
 }

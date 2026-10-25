@@ -2,10 +2,11 @@
   import DialogHost from './lib/ui/dialog/DialogHost.svelte'
   import { dialogs } from './lib/ui/dialog/dialog.svelte'
   import { modals } from './lib/ui/modals.svelte'
-  import Toast from './lib/ui/Toast.svelte'
-  import { toasts } from './lib/ui/toasts.svelte'
+  import FeedbackHost from './lib/ui/feedback/FeedbackHost.svelte'
+  import { feedback } from './lib/ui/feedback/feedback.svelte'
   import JqMode from './modes/jq/JqMode.svelte'
   import { OPEN_ACCEPT } from './shell/fileKind'
+  import { onSaveFailure } from './lib/util/storage'
   import { shell } from './shell/shell.svelte'
   import { themeCtl } from './shell/theme.svelte'
   import Viewer from './viewer/Viewer.svelte'
@@ -22,6 +23,20 @@
   $effect(() => {
     document.documentElement.dataset.theme = themeCtl.theme
     themeCtl.persist()
+  })
+
+  $effect(() => {
+    onSaveFailure(() =>
+      feedback.report({
+        key: 'storage.settings',
+        kind: 'warn',
+        title: '설정을 저장하지 못했습니다',
+        detail: '브라우저 저장 공간이 가득 찼습니다.',
+        reassure: '이번 세션에서는 변경한 설정이 유지됩니다.',
+        anchors: [],
+      }),
+    )
+    return () => onSaveFailure(null)
   })
 
   let jq = $state<JqMode | null>(null)
@@ -128,7 +143,7 @@
   }}
 />
 
-<Toast items={toasts.items} onDismiss={(id) => toasts.dismiss(id)} />
+<FeedbackHost />
 
 <!-- 공통 다이얼로그 렌더러 — alert/confirm/prompt가 여기서 그려진다 -->
 <DialogHost />

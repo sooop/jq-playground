@@ -6,7 +6,10 @@
    * 엔진에 넘기고 팝업을 그린다. 팝업은 캐럿 좌표에 뷰포트 고정으로 뜬다.
    */
   import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
-  import { toasts } from '../../../lib/ui/toasts.svelte'
+  import { anchor } from '../../../lib/ui/feedback/anchors'
+  import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
+  import PanelNotice from '../../../lib/ui/feedback/PanelNotice.svelte'
+  import { downloadText } from '../core/file-handler'
   import AutocompletePopup from '../autocomplete/AutocompletePopup.svelte'
   import { AutocompleteEngine } from '../autocomplete/engine.svelte'
   import { saveSavedQuery } from '../data/storage'
@@ -76,6 +79,22 @@
     })
   }
 
+  // 커맨드 팰릿이 부르는 동작 — 패널 버튼과 같은 함수를 쓴다.
+  export function save(): Promise<void> {
+    return saveCurrent()
+  }
+  export function openSaved(): void {
+    historyOpen = false
+    savedOpen = true
+  }
+  export function openHistory(): void {
+    savedOpen = false
+    historyOpen = true
+  }
+  export function formatQueryText(): void {
+    formatQuery()
+  }
+
   /** 치트시트처럼 현재 쿼리 뒤에 파이프로 잇는 경우 */
   export function appendQuery(q: string): void {
     const cur = jq.query
@@ -137,9 +156,45 @@
       validate: (v) => (v.trim() ? null : '이름을 입력하세요'),
     })
     if (name === null) return
-    await saveSavedQuery(name.trim(), q)
-    toasts.push('쿼리를 저장했습니다.', 'ok')
+    await trySave(name.trim(), q)
   }
+
+  /** 저장하고 결과를 저장 버튼에 알린다. 실패하면 편집기 내용은 그대로 두고 재시도·내보내기를 권한다. */
+  async function trySave(name: string, q: string): Promise<void> {
+    if (await saveSavedQuery(name, q)) {
+      feedback.clear('query.save')
+      feedback.ok('query.save', '저장됨')
+      return
+    }
+    feedback.report({
+      key: 'query.save',
+      kind: 'error',
+      title: `"${name}"를 저장하지 못했습니다`,
+      detail: '브라우저 저장 공간이 가득 찼을 수 있습니다.',
+      reassure: '쿼리 내용은 편집기에 그대로 있습니다.',
+      anchors: ['query.save'],
+      actions: [
+        { label: '다시 시도', run: () => void trySave(name, q) },
+        {
+          label: '파일로 내보내기',
+          run: () =>
+            downloadText(
+              JSON.stringify([{ name, query: q, timestamp: new Date().toISOString() }], null, 2),
+              `jq-queries-${new Date().toISOString().split('T')[0]}.json`,
+            ),
+        },
+      ],
+    })
+  }
+
+  // 오류 위치로 캐럿을 옮긴다 — jqState 가 DOM 을 잡지 않도록 여기서 등록한다
+  $effect(() =>
+    jq.registerCaret('query', (offset) => {
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(offset, offset)
+    }),
+  )
 
   function onBlur(): void {
     // 후보 클릭 시 blur 가 먼저 오므로 한 박자 늦춰 닫는다
@@ -165,11 +220,11 @@
     <span class="panel-title">Query</span>
     <div class="panel-actions">
       <button class="btn primary" title="실행 (Ctrl+Enter)" onclick={() => jq.runNow()}>실행</button>
-      <button class="btn" onclick={() => void saveCurrent()}>저장</button>
-      <button bind:this={savedBtn} class="btn" class:on={savedOpen} onclick={() => (savedOpen = !savedOpen)}>
+      <button class="btn" {@attach anchor('query.save')} onclick={() => void saveCurrent()}>저장</button>
+      <button bind:this={savedBtn} {@attach anchor('query.saved')} class="btn" class:on={savedOpen} onclick={() => (savedOpen = !savedOpen)}>
         저장됨
       </button>
-      <button bind:this={historyBtn} class="btn" class:on={historyOpen} onclick={() => (historyOpen = !historyOpen)}>
+      <button bind:this={historyBtn} {@attach anchor('query.history')} class="btn" class:on={historyOpen} onclick={() => (historyOpen = !historyOpen)}>
         히스토리
       </button>
       <button class="btn" onclick={() => setQuery('')}>비우기</button>
@@ -212,6 +267,8 @@
       onclick={() => void ac.update()}
     ></textarea>
   </div>
+
+  <PanelNotice scope="query" placement="bottom" />
 </section>
 
 {#if ac.open && ac.items.length > 0}

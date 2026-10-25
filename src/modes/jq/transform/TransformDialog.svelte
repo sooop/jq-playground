@@ -9,7 +9,8 @@
    */
   import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
   import Modal from '../../../lib/ui/Modal.svelte'
-  import { toasts } from '../../../lib/ui/toasts.svelte'
+  import { anchor } from '../../../lib/ui/feedback/anchors'
+  import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
   import {
     checkSizeGuard,
     createPreprocessClient,
@@ -271,9 +272,16 @@
     if (!formatted) return
     try {
       await navigator.clipboard.writeText(formatted)
-      toasts.push('변환 결과를 복사했습니다.', 'ok')
+      feedback.clear('transform.copy')
+      feedback.ok('transform.copy', '복사됨')
     } catch {
-      toasts.push('클립보드 복사에 실패했습니다.', 'warn')
+      feedback.report({
+        key: 'transform.copy',
+        kind: 'error',
+        title: '클립보드에 복사하지 못했습니다',
+        detail: '브라우저가 클립보드 접근을 막았을 수 있습니다.',
+        anchors: ['transform.copy'],
+      })
     }
   }
 
@@ -361,7 +369,7 @@
 
   {#snippet footer()}
     <button class="btn outline" onclick={close}>취소</button>
-    <button class="btn outline" disabled={!formatted} onclick={() => void copyOut()}>복사</button>
+    <button class="btn outline" {@attach anchor('transform.copy')} disabled={!formatted} onclick={() => void copyOut()}>복사</button>
     <button class="btn primary" disabled={!formatted} onclick={apply}>Input에 적용</button>
   {/snippet}
 </Modal>

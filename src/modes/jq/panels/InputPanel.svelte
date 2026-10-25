@@ -6,7 +6,9 @@
    * 상태에 반영하고 UI 를 켜고 끄는 일만 한다.
    */
   import { dialogs } from '../../../lib/ui/dialog/dialog.svelte'
-  import { toasts } from '../../../lib/ui/toasts.svelte'
+  import { anchor } from '../../../lib/ui/feedback/anchors'
+  import { feedback } from '../../../lib/ui/feedback/feedback.svelte'
+  import PanelNotice from '../../../lib/ui/feedback/PanelNotice.svelte'
   import { readFile } from '../core/file-handler'
   import {
     convertCsvToJson,
@@ -66,6 +68,30 @@
     findOpen = true
   }
 
+  // 커맨드 팰릿이 부르는 동작 — 패널 버튼과 같은 함수를 쓴다.
+  export function openHistory(): void {
+    historyOpen = true
+  }
+  export function pickFile(): void {
+    fileEl?.click()
+  }
+  export function formatInput(): Promise<void> {
+    return formatJson()
+  }
+  export function emptyInput(): void {
+    clearInput()
+  }
+  /** "CSV로 파싱" 버튼이 떠 있는가 */
+  export function canParseCsv(): boolean {
+    return showParseCsv
+  }
+  export function convertCsv(): void {
+    parseCsv()
+  }
+  export function undoTransformApplied(): void {
+    undoTransform()
+  }
+
   /** 열려 있는 팝업이 있으면 하나 닫고 true */
   export function closeTop(): boolean {
     if (findOpen) {
@@ -87,11 +113,25 @@
     }, AUTOSAVE_MS)
   }
 
+  /** 변환 안내 — 입력 패널 상단 배너. 다음 입력 때 걷는다(`onInput`). */
+  function notify(title: string): void {
+    feedback.report({ key: 'input.notice', kind: 'info', title, anchors: ['input-note.panel'] })
+  }
+
+  // 오류 위치로 캐럿을 옮긴다 — jqState 가 DOM 을 잡지 않도록 여기서 등록한다
+  $effect(() =>
+    jq.registerCaret('input', (offset) => {
+      if (!ta) return
+      ta.focus()
+      ta.setSelectionRange(offset, offset)
+    }),
+  )
+
   function applyResult(r: PipelineResult): void {
     jq.setInput(r.text, r.fileName)
     showParseCsv = r.showParseCsv
     jq.autoFormat = r.autoFormat
-    if (r.notice) toasts.push(r.notice, 'ok')
+    if (r.notice) notify(r.notice)
     if (r.openTransform) onOpenTransform()
   }
 
@@ -157,7 +197,7 @@
     try {
       jq.setInput(convertCsvToJson(jq.input), null)
       showParseCsv = false
-      toasts.push('CSV → JSON 으로 변환했습니다.', 'ok')
+      notify('CSV → JSON 으로 변환했습니다.')
     } catch (error) {
       void dialogs.alert({
         title: 'CSV 변환 실패',
@@ -202,6 +242,7 @@
 
   function onInput(): void {
     showParseCsv = false
+    feedback.clear('input.notice')
     scheduleAutoSave()
   }
 
@@ -267,7 +308,13 @@
       >
         찾기
       </button>
-      <button bind:this={historyBtn} class="btn" class:on={historyOpen} onclick={() => (historyOpen = !historyOpen)}>
+      <button
+        bind:this={historyBtn}
+        {@attach anchor('input.history')}
+        class="btn"
+        class:on={historyOpen}
+        onclick={() => (historyOpen = !historyOpen)}
+      >
         히스토리
       </button>
       <input
@@ -304,6 +351,8 @@
     {/if}
   </header>
 
+  <PanelNotice scope="input-note" placement="top" />
+
   <div
     class="panel-body"
     role="group"
@@ -329,6 +378,8 @@
       <div class="drop-hint">여기에 놓으면 입력으로 엽니다</div>
     {/if}
   </div>
+
+  <PanelNotice scope="input" placement="bottom" />
 </section>
 
 <style>
