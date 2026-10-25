@@ -22,6 +22,16 @@ export interface KvStore<T extends { id?: number }> {
    * `protect`에 든 id는 지우지 않는다(현재 열려 있는 문서 등). 지운 개수를 돌려준다.
    */
   enforceLimit(max: number, index: string, protect?: Iterable<number>): Promise<number>
+  /**
+   * 인덱스 값이 같은 레코드를 찾고 저장하는 일을 한 트랜잭션으로 한다(동시 호출의 중복 방지).
+   * `make`가 돌려준 레코드를 put하고 그 id를 돌려준다.
+   */
+  upsertBy(index: string, value: IDBValidKey, make: (existing: T | null) => T): Promise<number>
+  /**
+   * 레코드 크기(`sizeOf`) 합계가 `maxBytes`를 넘으면 `index` 오름차순(오래된 것)부터 지운다.
+   * 본문을 한 건씩 커서로만 훑으므로 전체를 메모리에 올리지 않는다.
+   */
+  enforceBytes(maxBytes: number, index: string, sizeOf: (v: T) => number, protect?: Iterable<number>): Promise<number>
 }
 
 export function kvStore<T extends { id?: number }>(storeName: string): KvStore<T> {
@@ -74,6 +84,43 @@ export function kvStore<T extends { id?: number }>(storeName: string): KvStore<T
       } catch {
         return 0
       }
+    },
+
+    async upsertBy(index, value, make) {
+      const key = await withTx([storeName], 'readwrite', async (tx) => {
+        const os = tx.objectStore(storeName)
+        const existing = await req(os.index(index).get(value) as IDBRequest<T | undefined>)
+        return req(os.put(make(existing ?? null)))
+      })
+      return typeof key === 'number' ? key : Number(key)
+    },
+
+    async enforceBytes(maxBytes, index, sizeOf, protect) {
+      const keep = new Set(protect ?? [])
+      return withTx([storeName], 'readwrite', (tx) => {
+        const os = tx.objectStore(storeName)
+        return new Promise<number>((resolve, reject) => {
+          // 최신 것부터 내려오며 합계를 센다 — 상한을 넘은 뒤의 레코드(=더 오래된 것)를 지운다
+          const cur = os.index(index).openCursor(null, 'prev')
+          let sum = 0
+          let removed = 0
+          cur.onerror = () => reject(cur.error)
+          cur.onsuccess = () => {
+            const c = cur.result
+            if (!c) {
+              resolve(removed)
+              return
+            }
+            const id = typeof c.primaryKey === 'number' ? c.primaryKey : Number(c.primaryKey)
+            sum += sizeOf(c.value as T)
+            if (sum > maxBytes && !keep.has(id)) {
+              c.delete()
+              removed++
+            }
+            c.continue()
+          }
+        })
+      })
     },
 
     async enforceLimit(max, index, protect) {

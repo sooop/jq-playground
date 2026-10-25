@@ -120,7 +120,7 @@ export function stepIndex(
 
 /** 매치 셀을 빠르게 조회하기 위한 키. 뷰 좌표 한 쌍을 하나의 수로 접는다. */
 export function hitKey(r: number, c: number): number {
-  return r * 4096 + c
+  return r * 65536 + c
 }
 
 /** 그리드에서 "이 셀이 매치인가"를 O(1)로 묻기 위한 집합. */
@@ -212,7 +212,7 @@ export function planReplace(
     for (const rg of ranges) {
       for (let r = Math.max(0, rg.r0); r <= Math.min(vr.length - 1, rg.r1); r++) {
         for (let c = Math.max(0, rg.c0); c <= Math.min(vc.length - 1, rg.c1); c++) {
-          const key = r * 4096 + c
+          const key = r * 65536 + c
           if (seen.has(key)) continue // 겹치는 범위에서 같은 셀을 두 번 세지 않는다
           seen.add(key)
           visit(vr[r], vc[c])

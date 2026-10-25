@@ -111,7 +111,7 @@ export class FindStore {
     this.cursor =
       hits.length === 0
         ? -1
-        : stepIndex(hits, { r: this.sel.active.r, c: this.sel.active.c - 1 }, dir)
+        : stepIndex(hits, { r: this.sel.active.r, c: this.sel.active.c + (dir === 1 ? -1 : 1) }, dir)
   }
 
   step(dir: 1 | -1): FindHit | null {

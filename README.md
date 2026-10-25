@@ -1,13 +1,13 @@
 # jq Playground
 
 JSON에 jq 쿼리를 걸어 보고, 결과 표를 **전체 화면 CSV 뷰어**로 확대해 훑는 도구다.
-`dist/index.html` 파일 하나로 동작하며 데이터는 브라우저 밖으로 나가지 않는다.
+`dist/jq-playground.html` 파일 하나로 동작하며 데이터는 브라우저 밖으로 나가지 않는다.
 [workbench](../workbench)의 jq 모드를 Svelte 5로 이식하고 CSV 뷰어를 단독 기능으로 강화했다.
 
 ```
 npm install
 npm run dev        # 개발 서버
-npm run build      # → dist/index.html (단일 파일, 약 400KB)
+npm run build      # → dist/jq-playground.html (단일 파일, 약 400KB)
 npm run check      # svelte-check
 npm test           # vitest
 npm run fixture    # fixtures/big.csv (10만 행 × 25열) 생성

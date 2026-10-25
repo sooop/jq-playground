@@ -32,12 +32,6 @@
       view.query = ''
       return
     }
-    if (raw.length < 2) {
-      // 1자 상태에서는 아직 적용하지 않되, 이전 필터가 남아 있으면 풀어 준다
-      applyDebounced.cancel()
-      if (view.query !== '') view.query = ''
-      return
-    }
     applyDebounced(raw)
   }
 

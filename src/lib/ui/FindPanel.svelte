@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte'
   import type { Dataset } from '../data/dataset.svelte'
   import type { FindHit } from '../data/find'
   import { FIND_LIMIT } from '../data/find'
@@ -30,6 +31,8 @@
     find.resetCursorNearActive()
     onGoto(find.current)
   }, 180)
+
+  onDestroy(() => applyDebounced.cancel())
 
   function onInput(): void {
     if (find.raw === '') {
@@ -240,7 +243,7 @@
     <p class="err" role="alert">{find.error}</p>
   {:else if active && find.hits.length > 0}
     <div class="list" bind:this={listEl} role="listbox" aria-label="매치 목록" tabindex="-1">
-      {#each shown as h, i (h.r * 4096 + h.c)}
+      {#each shown as h, i (h.r * 65536 + h.c)}
         <button
           class="hit"
           class:on={i === find.cursor}

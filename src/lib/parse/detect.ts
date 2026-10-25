@@ -69,14 +69,14 @@ const DATE_RE = /^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}([ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?
 
 /** 날짜로 볼 수 있는 값인지. ISO 및 `2024/01/02`, `2024.01.02` 형태만 인정한다. */
 export function looksDate(v: string): boolean {
-  if (!DATE_RE.test(v)) return false
-  return !Number.isNaN(Date.parse(v.replace(/[./]/g, '-').replace(' ', 'T')))
+  return !Number.isNaN(parseDate(v))
 }
 
 /** 날짜 파싱 — 정렬 키용 epoch ms. 파싱 실패 시 NaN. */
 export function parseDate(v: string): number {
   if (!DATE_RE.test(v)) return NaN
-  return Date.parse(v.replace(/[./]/g, '-').replace(' ', 'T'))
+  // 구분자는 날짜부(앞 10자 이내)만 바꾼다 — 소수 초의 '.'을 건드리면 파싱이 깨진다
+  return Date.parse(v.replace(/^(\d{4})[./](\d{1,2})[./](\d{1,2})/, '$1-$2-$3').replace(' ', 'T'))
 }
 
 /**
@@ -90,7 +90,7 @@ export function detectColType(
 ): ColType {
   const n = rows.length
   if (n === 0) return 'string'
-  const step = Math.max(1, Math.floor(n / sampleLimit))
+  const step = Math.max(1, Math.ceil(n / sampleLimit))
   let seen = 0
   let num = 0
   let date = 0
@@ -229,6 +229,11 @@ export function finalize(
  */
 export function decodeBytes(buf: ArrayBuffer): { text: string; encoding: string; suspect: boolean } {
   const bytes = new Uint8Array(buf)
+  // UTF-16 BOM (Excel '유니코드 텍스트')
+  if (bytes.length >= 2 && ((bytes[0] === 0xff && bytes[1] === 0xfe) || (bytes[0] === 0xfe && bytes[1] === 0xff))) {
+    const enc = bytes[0] === 0xff ? 'utf-16le' : 'utf-16be'
+    return { text: stripBom(new TextDecoder(enc).decode(bytes)), encoding: enc, suspect: false }
+  }
   const utf8 = new TextDecoder('utf-8').decode(bytes)
   const bad = countReplacement(utf8)
   if (bad === 0) return { text: stripBom(utf8), encoding: 'utf-8', suspect: false }

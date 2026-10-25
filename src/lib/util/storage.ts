@@ -5,6 +5,15 @@
 
 const PREFIX = 'xsv.'
 const memory = new Map<string, string>()
+/** localStorage 쓰기에 실패한 키 — 읽을 때 오래된 저장값 대신 메모리의 최신 값을 돌려준다 */
+const memoryFirst = new Set<string>()
+let failureHandler: (() => void) | null = null
+let failureNotified = false
+
+/** 저장 실패(용량 초과 등)를 한 번만 알리는 콜백을 등록한다. UI 계층이 토스트 등으로 연결한다. */
+export function onSaveFailure(handler: (() => void) | null): void {
+  failureHandler = handler
+}
 
 let available: boolean | null = null
 
@@ -22,6 +31,7 @@ function usable(): boolean {
 }
 
 function readRaw(key: string): string | null {
+  if (memoryFirst.has(key)) return memory.get(key) ?? null
   if (usable()) {
     try {
       return localStorage.getItem(PREFIX + key)
@@ -37,8 +47,15 @@ function writeRaw(key: string, value: string): void {
   if (usable()) {
     try {
       localStorage.setItem(PREFIX + key, value)
+      memoryFirst.delete(key)
+      return
     } catch {
-      /* 용량 초과 등 — 메모리 폴백으로 충분 */
+      /* 용량 초과 등 — 이 세션에서는 메모리 값을 우선하고 한 번 알린다 */
+    }
+    memoryFirst.add(key)
+    if (!failureNotified) {
+      failureNotified = true
+      failureHandler?.()
     }
   }
 }

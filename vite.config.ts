@@ -2,8 +2,22 @@ import { defineConfig } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { viteSingleFile } from 'vite-plugin-singlefile'
 
+// 빌드 산출물 index.html 을 jq-playground.html 로 바꾼다
+const renameOutput = () => ({
+  name: 'rename-output',
+  apply: 'build' as const,
+  enforce: 'post' as const,
+  generateBundle: {
+    order: 'post' as const,
+    handler(_: unknown, bundle: Record<string, { fileName: string }>) {
+      const html = bundle['index.html']
+      if (html) html.fileName = 'jq-playground.html'
+    },
+  },
+})
+
 export default defineConfig({
-  plugins: [svelte(), viteSingleFile({ removeViteModuleLoader: true })],
+  plugins: [svelte(), viteSingleFile({ removeViteModuleLoader: true }), renameOutput()],
   build: {
     target: 'es2022',
     cssCodeSplit: false,

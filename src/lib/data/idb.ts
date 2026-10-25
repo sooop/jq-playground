@@ -93,8 +93,21 @@ export function openDb(): Promise<IDBDatabase> {
         for (const [idxName, idxPath] of spec.indexes ?? []) store.createIndex(idxName, idxPath)
       }
     }
-    r.onsuccess = () => resolve(r.result)
+    r.onsuccess = () => {
+      const db = r.result
+      // 다른 탭의 버전 업그레이드나 브라우저의 연결 종료 뒤에도 다음 호출이 새로 연결하게 한다
+      const drop = () => {
+        if (dbPromise === p) dbPromise = null
+      }
+      db.onversionchange = () => {
+        db.close()
+        drop()
+      }
+      db.onclose = drop
+      resolve(db)
+    }
     r.onerror = () => reject(normalizeError(r.error))
+    r.onblocked = () => reject(new DocStoreError('io', '다른 탭이 저장소를 사용 중이라 열 수 없습니다'))
   })
   dbPromise = p
   // 실패한 연결을 캐시해두면 이후 모든 호출이 영원히 실패한다 — 다음 호출이 다시 시도하게 한다
@@ -142,11 +155,28 @@ export function withTx<T>(
             resolve(result)
           }
         }
-        Promise.resolve(fn(tx))
-          .then((r) => {
-            result = r
-          })
-          .catch(fail)
+        try {
+          Promise.resolve(fn(tx))
+            .then((r) => {
+              result = r
+            })
+            .catch((e) => {
+              // 이미 요청한 쓰기가 커밋되지 않도록 되돌린다
+              try {
+                tx.abort()
+              } catch {
+                /* 이미 종료됨 */
+              }
+              fail(e)
+            })
+        } catch (e) {
+          try {
+            tx.abort()
+          } catch {
+            /* 이미 종료됨 */
+          }
+          fail(e)
+        }
       }),
   )
 }
